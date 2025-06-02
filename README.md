@@ -75,7 +75,7 @@ uv add 包名
 ```
 例如：
 ```bash
-uv add discord-py google-generativeai python-dotenv
+uv add discord-py google-generativeai python-dotenv psutil
 ```
 依赖会自动写入 `pyproject.toml`。
 
@@ -117,6 +117,21 @@ def setup(bot):
 
 自定义命令建议放在 `akari/bot/commands/` 目录下。  
 只需新建 Python 文件并实现命令函数，参考已有的 `aicmd.py`、`utilcmd.py` 等。
+
+### 保研信息查询插件
+正常安装机器人框架即可使用
+
+### meme生成器
+需下载图片资源
+```bash
+uv add meme_generator
+#激活虚拟环境安装资源
+.venv/Scripts/activate
+meme download
+```
+
+### cs开箱模拟插件
+正常安装机器人框架即可使用
 
 ---
 
