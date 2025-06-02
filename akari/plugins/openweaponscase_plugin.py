@@ -5,6 +5,7 @@ import time
 import discord
 from discord.ext import commands
 from akari.bot.commands import command, group
+from akari.bot.utils import EmbedBuilder
 
 # 数据存储目录
 PLUGIN_DIR = os.path.join('data', 'openweaponscase')
@@ -33,13 +34,21 @@ QUALITY_PROBABILITY = {
     "非凡": 0.0026    # 金
 }
 
-# 不同品质对应的Discord颜色
+# 不同品质对应的Discord颜色和图标
 QUALITY_COLORS = {
     "军规级": 0x4b69ff,  # 蓝色
     "受限": 0x8847ff,    # 紫色
     "保密": 0xd32ce6,    # 粉色
     "隐秘": 0xeb4b4b,    # 红色
     "非凡": 0xffd700     # 金色
+}
+
+QUALITY_ICONS = {
+    "军规级": "🔹",
+    "受限": "🔮",
+    "保密": "💠",
+    "隐秘": "💎",
+    "非凡": "⚜️"
 }
 
 def ensure_data_dir():
@@ -56,14 +65,28 @@ def setup(bot):
     async def cscase(ctx):
         """CS:GO武器箱开箱模拟命令"""
         if ctx.invoked_subcommand is None:
-            commands_list = [
-                "list - 查看可用武器箱列表",
-                "open [箱子名称] [数量] - 开箱",
-                "inventory - 查看库存",
-                "purge - 清空库存"
-            ]
-            desc = "CS:GO武器箱开箱模拟器，使用方式:\n" + "\n".join([f"!开箱 {cmd}" for cmd in commands_list])
-            embed = discord.Embed(title="🔫 CS:GO开箱系统菜单", description=desc, color=0x3498db)
+            commands_dict = {
+                "list": "查看可用武器箱列表",
+                "open [箱子名称] [数量]": "开启武器箱",
+                "inventory": "查看物品库存",
+                "purge": "清空库存数据"
+            }
+            
+            embed = EmbedBuilder.create(
+                title="🔫 CS:GO开箱系统",
+                description="欢迎使用CS:GO武器箱开箱模拟器！",
+                color_key="special"
+            )
+            
+            # 添加命令说明
+            for cmd, desc in commands_dict.items():
+                embed.add_field(
+                    name=f"!开箱 {cmd}",
+                    value=desc,
+                    inline=True
+                )
+                
+            embed.set_footer(text="祝您开出稀有物品!")
             await ctx.reply(embed=embed)
 
     @cscase.command(name="list", aliases=["列表", "菜单"])
@@ -355,40 +378,64 @@ class CSGOWeaponCasePlugin:
 
     async def _display_all_items(self, ctx, case_name, count, nickname, items):
         """显示所有物品详情"""
-        embed_title = f"⚡ {nickname} 开启【{case_name}】x{count}"
-        embed = discord.Embed(title=embed_title, color=0x3498db)
+        embed = EmbedBuilder.create(
+            title=f"⚡ 开箱结果",
+            description=f"{nickname} 开启了 {count} 个【{case_name}】",
+            color_key="special"
+        )
         
+        # 设置用户头像
+        embed.set_author(
+            name=f"{nickname}的开箱",
+            icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
+        )
+        
+        # 添加物品字段
         for i, item in enumerate(items, 1):
             quality = item["quality"]
             color = QUALITY_COLORS.get(quality, 0x808080)
+            icon = QUALITY_ICONS.get(quality, "🔶")
             
-            field_title = f"{i}. {item['name']} ({quality})"
+            field_title = f"{i}. {icon} {item['name']}"
             field_value = (
-                f"🔧 磨损：{item['wear_level']} ({item['wear_value']:.8f})\n"
-                f"模板编号: {item['template_id']}"
+                f"**品质**: {quality}\n"
+                f"**磨损**: {item['wear_level']} ({item['wear_value']:.8f})\n"
+                f"**编号**: #{item['template_id']}"
             )
             embed.add_field(name=field_title, value=field_value, inline=False)
             
-            if i == 1 and item.get("img"):  # 只显示第一个物品的图片
+            # 只显示第一个物品的图片
+            if i == 1 and item.get("img"):
                 embed.set_thumbnail(url=item["img"])
         
         # 添加库存信息
         history_key = str(ctx.author.id)
         total_items = self.open_history[history_key]['total']
-        embed.set_footer(text=f"📦 当前库存：{total_items}件")
+        embed.set_footer(text=f"📦 当前库存：{total_items}件 | 使用 !开箱 inventory 查看库存")
         
         await ctx.reply(embed=embed)
 
     async def _display_summary(self, ctx, case_name, count, nickname, quality_stats, rare_items):
         """显示开箱统计摘要"""
-        embed_title = f"⚡ {nickname} 开启【{case_name}】x{count}"
-        embed = discord.Embed(title=embed_title, color=0x3498db)
+        embed = EmbedBuilder.create(
+            title=f"⚡ 开箱统计",
+            description=f"{nickname} 开启了 {count} 个【{case_name}】",
+            color_key="special"
+        )
+        
+        # 设置用户头像
+        embed.set_author(
+            name=f"{nickname}的开箱",
+            icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
+        )
         
         # 显示统计信息
         stats_text = ""
         for quality in ["军规级", "受限", "保密", "隐秘", "非凡"]:
             if quality_stats[quality] > 0:
-                stats_text += f"- {quality}: {quality_stats[quality]}件\n"
+                icon = QUALITY_ICONS.get(quality, "🔶")
+                percent = (quality_stats[quality] / count) * 100
+                stats_text += f"{icon} **{quality}**: {quality_stats[quality]}件 ({percent:.1f}%)\n"
         
         embed.add_field(name="📊 物品统计", value=stats_text, inline=False)
         
@@ -396,20 +443,22 @@ class CSGOWeaponCasePlugin:
         if rare_items:
             rare_items_text = ""
             for i, item in enumerate(rare_items[:10], 1):
-                rare_items_text += f"{i}. **{item['name']}** | 磨损: {item['wear_value']:.8f}\n"
+                icon = QUALITY_ICONS.get(item["quality"], "🔶")
+                rare_items_text += f"{i}. {icon} **{item['name']}** | {item['wear_level']} ({item['wear_value']:.8f})\n"
             
             if len(rare_items) > 10:
                 rare_items_text += f"...等共 {len(rare_items)} 件稀有物品"
             
             embed.add_field(name="💎 稀有物品清单", value=rare_items_text, inline=False)
         
-            if rare_items[0].get("img"):  # 使用第一个稀有物品的图片
+            # 使用第一个稀有物品的图片
+            if rare_items[0].get("img"):
                 embed.set_thumbnail(url=rare_items[0]["img"])
         
         # 添加库存信息
         history_key = str(ctx.author.id)
         total_items = self.open_history[history_key]['total']
-        embed.set_footer(text=f"📦 当前库存：{total_items}件")
+        embed.set_footer(text=f"📦 当前库存：{total_items}件 | 使用 !开箱 inventory 查看库存")
         
         await ctx.reply(embed=embed)
 
@@ -419,26 +468,48 @@ class CSGOWeaponCasePlugin:
         inventory = self.open_history.get(user_id, {})
         
         if not inventory.get("total"):
-            await ctx.reply("📭 库存空空如也")
+            embed = EmbedBuilder.warning("库存为空", "你的库存中还没有任何物品")
+            await ctx.reply(embed=embed)
             return
         
-        embed = discord.Embed(
-            title=f"{ctx.author.display_name} 的武器库存", 
-            color=0x9b59b6
+        embed = EmbedBuilder.create(
+            title=f"🧰 武器库存",
+            description=f"{ctx.author.display_name} 的收藏品",
+            color_key="info"
+        )
+        
+        # 添加用户头像
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
         )
         
         # 添加统计信息
         embed.add_field(
             name="📦 总库存", 
-            value=f"{inventory['total']}件", 
+            value=f"{inventory['total']}件物品", 
             inline=False
         )
         
         # 普通物品统计
         normal_stats = ""
         for k, v in inventory['other_stats'].items():
-            normal_stats += f"- {k}: {v}件\n"
-        embed.add_field(name="✦ 普通物品统计", value=normal_stats, inline=False)
+            icon = QUALITY_ICONS.get(k, "🔶")
+            if v > 0:
+                normal_stats += f"{icon} {k}: {v}件\n"
+        
+        if normal_stats:
+            embed.add_field(name="🔷 普通物品统计", value=normal_stats, inline=True)
+        
+        # 稀有物品统计
+        rare_stats = ""
+        if inventory["red_count"] > 0:
+            rare_stats += f"{QUALITY_ICONS['隐秘']} 隐秘物品: {inventory['red_count']}件\n"
+        if inventory["gold_count"] > 0:
+            rare_stats += f"{QUALITY_ICONS['非凡']} 非凡物品: {inventory['gold_count']}件\n"
+            
+        if rare_stats:
+            embed.add_field(name="💎 稀有物品统计", value=rare_stats, inline=True)
         
         # 隐秘物品展示
         if inventory["red_count"] > 0 or inventory["gold_count"] > 0:
@@ -447,22 +518,22 @@ class CSGOWeaponCasePlugin:
                 inventory["items"], 
                 key=lambda x: x.get("time", 0), 
                 reverse=True
-            )[:20]  # 最多显示20个
+            )[:15]  # 最多显示15个
             
             rare_text = ""
             for i, item in enumerate(rare_items, 1):
-                rare_text += f"{i}. {item['name']} | 磨损:{item['wear_value']:.8f}\n"
+                rare_text += f"{i}. **{item['name']}** | 磨损: {item['wear_value']:.8f}\n"
             
             total_rare = inventory["red_count"] + inventory["gold_count"]
             if len(rare_items) < total_rare:
                 rare_text += f"...等共 {total_rare} 件稀有物品"
                 
-            embed.add_field(name="🔴 稀有物品", value=rare_text, inline=False)
+            embed.add_field(name="🏆 稀有物品详情", value=rare_text, inline=False)
         
         # 最后开箱时间
         if inventory.get("last_open"):
-            last_open_time = time.strftime("%m-%d %H:%M", time.localtime(inventory["last_open"]))
-            embed.set_footer(text=f"⏰ 最后开箱：{last_open_time}")
+            last_open_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(inventory["last_open"]))
+            embed.set_footer(text=f"⏰ 最后开箱时间：{last_open_time}")
         
         await ctx.reply(embed=embed)
 
@@ -472,33 +543,33 @@ class CSGOWeaponCasePlugin:
         if user_id in self.open_history:
             del self.open_history[user_id]
             self._save_history()
-            await ctx.reply("✅ 库存已清空")
+            embed = EmbedBuilder.success("库存已清空", "您的所有物品已被清除")
+            await ctx.reply(embed=embed)
         else:
-            await ctx.reply("❌ 没有可清除的库存")
+            embed = EmbedBuilder.warning("无库存", "没有找到可清除的库存数据")
+            await ctx.reply(embed=embed)
 
     async def show_menu(self, ctx):
         """显示帮助菜单"""
-        embed = discord.Embed(
-            title="🔫 CS:GO开箱系统菜单",
+        embed = EmbedBuilder.create(
+            title="🔫 CS:GO开箱系统",
             description=(
-                "以下是可用命令和武器箱列表\n"
+                "欢迎使用CS:GO武器箱模拟器！以下是可用的命令和武器箱列表\n"
                 "▬▬▬▬▬▬▬▬▬▬▬▬▬"
             ),
-            color=0xf39c12
+            color_key="warning"
         )
         
-        embed.add_field(
-            name="✦ 使用方法", 
-            value=(
-                "✦ 单次开箱：`!开箱 open [武器箱名称]`\n"
-                "  示例：`!开箱 open 命运武器箱`\n\n"
-                "✦ 批量开箱：`!开箱 open [武器箱名称] [次数]`\n"
-                "  示例：`!开箱 open 命运武器箱 10`\n\n"
-                "✦ 库存查询：`!开箱 inventory`\n"
-                "✦ 清除数据：`!开箱 purge`\n"
-            ),
-            inline=False
+        # 添加使用方法字段
+        usage_text = (
+            "**单次开箱**：`!开箱 open [武器箱名称]`\n"
+            "例如：`!开箱 open 命运武器箱`\n\n"
+            "**批量开箱**：`!开箱 open [武器箱名称] [次数]`\n"
+            "例如：`!开箱 open 命运武器箱 10`\n\n"
+            "**查看库存**：`!开箱 inventory`\n"
+            "**清空库存**：`!开箱 purge`"
         )
+        embed.add_field(name="📖 使用方法", value=usage_text, inline=False)
         
         # 将武器箱列表分组显示
         case_names = list(self.case_data.keys())
@@ -513,5 +584,8 @@ class CSGOWeaponCasePlugin:
             field_name = f"📦 武器箱列表 ({start_idx+1}-{end_idx})"
             
             embed.add_field(name=field_name, value=field_content, inline=True)
+        
+        # 添加页脚
+        embed.set_footer(text="祝您开出稀有物品！")
         
         await ctx.reply(embed=embed)
