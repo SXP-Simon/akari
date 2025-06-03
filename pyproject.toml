@@ -13,3 +13,6 @@ dependencies = [
 
 [project.scripts]
 akari = "akari.main:main"
+
+[tool.setuptools]
+packages = ["akari"]

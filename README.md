@@ -17,6 +17,7 @@ pip install uv
 ```bash
 git clone <仓库地址>
 cd akari
+uv venv
 uv pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 > 推荐使用清华 PyPI 镜像，避免国内网络问题。
