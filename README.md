@@ -127,10 +127,6 @@ uv add meme_generator
 #激活虚拟环境安装资源
 source .venv/bin/activate # linux
 .venv/Scripts/activate # win
-<<<<<<< Updated upstream
-=======
-uv venv
->>>>>>> Stashed changes
 meme download
 ```
 
