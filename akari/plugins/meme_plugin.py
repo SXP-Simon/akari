@@ -103,7 +103,7 @@ def setup(bot):
 
     # 修改兼容性命令名称，避免与命令组冲突
     @bot.register_command
-    @command(name="memegen", aliases=["表情包"], description="生成表情包：!memegen 模板名 [@用户1 @用户2 ...] 文本1 文本2 ...（可带图片/图片URL/key=value）")
+    @command(name="memegen", aliases=["表情包"], description="生成表情包：!memegen 模板名 [文本1 文本2 ...] [@用户1 @用户2 ...]...（可带图片/图片URL/key=value）")
     async def meme_direct(ctx, template: str = None, *args: str):
         """直接生成表情包（兼容性命令）"""
         if template is None:
@@ -140,7 +140,7 @@ class MemePlugin:
             name="基本用法",
             value=(
                 "```\n"
-                "!meme generate 模板名 [@用户1 @用户2 ...] 文本1 文本2 ...\n"
+                "!meme generate 模板名 [文本1 文本2 ...] [@用户1 @用户2 ...] ...\n"
                 "```\n"
                 "可带图片附件/图片URL/key=value参数"
             ),
@@ -276,7 +276,7 @@ class MemePlugin:
                 )
         
         # 添加使用示例
-        example = f"!meme generate {template} 文本1 文本2"
+        example = f"!meme generate {template} 文本(可选) @xxx"
         embed.add_field(name="使用示例", value=f"```\n{example}\n```", inline=False)
         
         # 生成预览
@@ -408,10 +408,12 @@ class MemePlugin:
                 all_images.append(avatar)
         all_images = all_images[:params_type.max_images]
         
-        # 补全文本，优先用@用户的用户名
-        all_names = mention_names + texts
+        # 补全文本，优先使用用户输入的文本，如果文本不足再用@用户名补充
+        all_names = texts
         if len(all_names) < params_type.min_texts:
-            all_names += params_type.default_texts[:params_type.min_texts - len(all_names)]
+            all_names.extend(mention_names)
+        if len(all_names) < params_type.min_texts:
+            all_names.extend(params_type.default_texts[:params_type.min_texts - len(all_names)])
         all_names = all_names[:params_type.max_texts]
         
         # 生成表情包

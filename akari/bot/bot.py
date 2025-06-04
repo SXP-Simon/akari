@@ -10,7 +10,7 @@ import sys
 
 # 添加工具引入
 try:
-    from mybot2.bot.utils import EmbedBuilder
+    from akari.bot.utils import EmbedBuilder
 except ImportError:
     print("未找到utils模块，请确保已创建")
 
@@ -31,7 +31,7 @@ class MyBot(commands.Bot):
         for file in commands_dir.glob("*.py"):
             if file.name.startswith("_") or file.name == "__init__.py":
                 continue
-            module_name = f"mybot2.bot.commands.{file.stem}"
+            module_name = f"akari.bot.commands.{file.stem}"
             module = importlib.import_module(module_name)
             if hasattr(module, "setup"):
                 await module.setup(self)
@@ -43,7 +43,7 @@ class MyBot(commands.Bot):
         for file in plugins_dir.glob("*.py"):
             if file.name.startswith("_") or file.name == "__init__.py":
                 continue
-            module_name = f"mybot2.plugins.{file.stem}"
+            module_name = f"akari.plugins.{file.stem}"
             module = importlib.import_module(module_name)
             if hasattr(module, "setup"):
                 module.setup(self)
@@ -99,7 +99,7 @@ class MyBot(commands.Bot):
         try:
             # 显示正在输入状态
             async with message.channel.typing():
-                from mybot2.config.settings import Settings
+                from akari.config.settings import Settings
                 import google.generativeai as genai
                 genai.configure(api_key=Settings.GOOGLE_AI_KEY)
                 ai_model = genai.GenerativeModel(model_name="gemini-1.5-flash")

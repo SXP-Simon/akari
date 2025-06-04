@@ -17,10 +17,10 @@ pip install uv
 ```bash
 git clone <仓库地址>
 cd akari
-uv venv
-uv pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 建议不需要体验meme生成的删除meme相关的plugin后进行安装
+uv pip install -e .
 ```
-> 推荐使用清华 PyPI 镜像，避免国内网络问题。
+
 
 ### 3. 配置环境变量
 
@@ -39,10 +39,7 @@ DISCORD_BOT_TOKEN=你的TOKEN
 ```bash
 uv run akari
 ```
-或
-```bash
-python -m akari.main
-```
+
 
 ---
 
@@ -56,6 +53,7 @@ akari/
 │   │   └── settings.py
 │   ├── bot/              # Bot 主体与命令
 │   │   ├── bot.py
+│   │   ├── utils.py      # discord.Embed相关
 │   │   └── commands/
 │   ├── plugins/          # 插件目录
 │   │   └── gemini_plugin.py
@@ -127,7 +125,12 @@ def setup(bot):
 ```bash
 uv add meme_generator
 #激活虚拟环境安装资源
-.venv/Scripts/activate
+source .venv/bin/activate # linux
+.venv/Scripts/activate # win
+<<<<<<< Updated upstream
+=======
+uv venv
+>>>>>>> Stashed changes
 meme download
 ```
 
