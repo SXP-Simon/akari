@@ -4,7 +4,6 @@ import os
 import time
 import discord
 from discord.ext import commands
-from akari.bot.commands import command, group
 from akari.bot.utils import EmbedBuilder
 
 # 数据存储目录
@@ -55,47 +54,49 @@ def ensure_data_dir():
     """确保数据目录存在"""
     os.makedirs(PLUGIN_DIR, exist_ok=True)
 
-def setup(bot):
-    """初始化函数"""
-    ensure_data_dir()
-    csplugin = CSGOWeaponCasePlugin(bot)
+class CSGOWeaponCasePlugin(commands.Cog):
+    """CS:GO武器箱开箱插件"""
     
-    @bot.register_command
-    @group(name="开箱", description="CS:GO武器箱开箱模拟器")
-    async def cscase(ctx):
-        """CS:GO武器箱开箱模拟命令"""
-        if ctx.invoked_subcommand is None:
-            commands_dict = {
-                "list": "查看可用武器箱列表",
-                "open [箱子名称] [数量]": "开启武器箱",
-                "inventory": "查看物品库存",
-                "purge": "清空库存数据"
-            }
-            
-            embed = EmbedBuilder.create(
-                title="🔫 CS:GO开箱系统",
-                description="欢迎使用CS:GO武器箱开箱模拟器！",
-                color_key="special"
+    def __init__(self, bot):
+        self.bot = bot
+        self.case_data = self._load_cases()
+        self.open_history = self._load_history()
+        self.max_display_count = 10  # 超过此数量时使用统计模式显示
+    
+    @commands.group(name="开箱", description="CS:GO武器箱开箱模拟器", invoke_without_command=True)
+    async def cscase(self, ctx):
+        """CS:GO武器箱开箱命令"""
+        commands_dict = {
+            "list": "查看可用武器箱列表",
+            "open [箱子名称] [数量]": "开启武器箱",
+            "inventory": "查看物品库存",
+            "purge": "清空库存数据"
+        }
+        
+        embed = EmbedBuilder.create(
+            title="🔫 CS:GO开箱系统",
+            description="欢迎使用CS:GO武器箱开箱模拟器！",
+            color_key="special"
+        )
+        
+        # 添加命令说明
+        for cmd, desc in commands_dict.items():
+            embed.add_field(
+                name=f"!开箱 {cmd}",
+                value=desc,
+                inline=True
             )
             
-            # 添加命令说明
-            for cmd, desc in commands_dict.items():
-                embed.add_field(
-                    name=f"!开箱 {cmd}",
-                    value=desc,
-                    inline=True
-                )
-                
-            embed.set_footer(text="祝您开出稀有物品!")
-            await ctx.reply(embed=embed)
+        embed.set_footer(text="祝您开出稀有物品!")
+        await ctx.reply(embed=embed)
 
     @cscase.command(name="list", aliases=["列表", "菜单"])
-    async def cscase_list(ctx):
+    async def cscase_list(self, ctx):
         """列出所有可用的武器箱"""
-        await csplugin.show_menu(ctx)
+        await self.show_menu(ctx)
 
     @cscase.command(name="open", aliases=["开启"])
-    async def cscase_open(ctx, *, args=None):
+    async def cscase_open(self, ctx, *, args=None):
         """开启武器箱
         
         参数:
@@ -105,56 +106,42 @@ def setup(bot):
             await ctx.reply("❌ 请输入武器箱名称，例如：`!开箱 open 命运武器箱 1`")
             return
         
-        await csplugin.handle_open(ctx, args)
+        await self.handle_open(ctx, args)
 
     @cscase.command(name="inventory", aliases=["库存"])
-    async def cscase_inventory(ctx):
+    async def cscase_inventory(self, ctx):
         """查看当前库存"""
-        await csplugin.show_inventory(ctx)
+        await self.show_inventory(ctx)
 
     @cscase.command(name="purge", aliases=["清空", "清除"])
-    async def cscase_purge(ctx):
+    async def cscase_purge(self, ctx):
         """清空库存数据"""
-        await csplugin.handle_purge(ctx)
+        await self.handle_purge(ctx)
         
-    # 添加直接命令版本以兼容
-    @bot.register_command
-    @command(name="开启武器箱")
-    async def direct_open(ctx, *, args=None):
+    @commands.command(name="开启武器箱", hidden=True)
+    async def direct_open(self, ctx, *, args=None):
         """直接开箱命令"""
         if not args:
             await ctx.reply("❌ 请输入武器箱名称，例如：`!开启武器箱 命运武器箱 1`")
             return
         
-        await csplugin.handle_open(ctx, args)
+        await self.handle_open(ctx, args)
     
-    @bot.register_command
-    @command(name="武器箱菜单")
-    async def direct_menu(ctx):
+    @commands.command(name="武器箱菜单", hidden=True)
+    async def direct_menu(self, ctx):
         """查看武器箱菜单"""
-        await csplugin.show_menu(ctx)
+        await self.show_menu(ctx)
         
-    @bot.register_command
-    @command(name="武器库存")
-    async def direct_inventory(ctx):
+    @commands.command(name="武器库存", hidden=True)
+    async def direct_inventory(self, ctx):
         """查看当前库存"""
-        await csplugin.show_inventory(ctx)
+        await self.show_inventory(ctx)
         
-    @bot.register_command
-    @command(name="清空库存")
-    async def direct_purge(ctx):
+    @commands.command(name="清空库存", hidden=True)
+    async def direct_purge(self, ctx):
         """清空库存数据"""
-        await csplugin.handle_purge(ctx)
+        await self.handle_purge(ctx)
 
-class CSGOWeaponCasePlugin:
-    """CS:GO武器箱开箱插件"""
-    
-    def __init__(self, bot):
-        self.bot = bot
-        self.case_data = self._load_cases()
-        self.open_history = self._load_history()
-        self.max_display_count = 10  # 超过此数量时使用统计模式显示
-    
     def _load_cases(self):
         """加载并处理武器箱数据"""
         try:
@@ -589,3 +576,8 @@ class CSGOWeaponCasePlugin:
         embed.set_footer(text="祝您开出稀有物品！")
         
         await ctx.reply(embed=embed)
+
+async def setup(bot):
+    """初始化函数"""
+    ensure_data_dir()
+    await bot.add_cog(CSGOWeaponCasePlugin(bot))

@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Set
 import discord
 from discord.ext import commands, tasks
-from akari.bot.commands import command, group
+from akari.bot.commands import command
 from akari.bot.utils import EmbedBuilder
 
 # 数据存储目录
@@ -29,10 +29,24 @@ def setup(bot):
     """插件初始化函数"""
     ensure_data_dir()
     plugin = BaoyanPlugin(bot)
-    
-    @bot.register_command
-    @group(name="baoyan", description="计算机保研信息查询（输入 !baoyan help 查看详细用法）")
-    async def baoyan(ctx):
+    bot.add_cog(plugin)
+
+class BaoyanPlugin(commands.Cog):
+    """计算机保研信息插件"""
+    def __init__(self, bot):
+        self.bot = bot
+        self.data_sources = {}
+        self.default_source = None
+        self.last_update_time = 0
+        self.known_programs = set()
+        self.known_programs_file = os.path.join(DATA_DIR, "known_programs.json")
+        self.load_data_sources()
+        self.load_known_programs()
+        self.update_task = None
+        self.notification_task = None
+
+    @commands.group(name="baoyan", description="计算机保研信息查询（输入 !baoyan help 查看详细用法）", invoke_without_command=True)
+    async def baoyan(self, ctx):
         if ctx.invoked_subcommand is None:
             embed = EmbedBuilder.menu(
                 title="计算机保研信息查询命令",
@@ -48,52 +62,36 @@ def setup(bot):
                 }
             )
             await ctx.reply(embed=embed)
-    
+
     @baoyan.command(name="list", description="列出保研项目（可选标签筛选，多个标签用逗号分隔）\n示例：!baoyan list 软件工程,人工智能")
-    async def list_programs(ctx, tag: str = None):
-        await plugin.list_programs(ctx, tag)
-    
+    async def list_programs(self, ctx, tag: str = None):
+        await self.list_programs(ctx, tag)
+
     @baoyan.command(name="search", description="搜索保研项目（关键词支持模糊匹配）\n示例：!baoyan search 清华")
-    async def search_programs(ctx, *, keyword: str):
-        await plugin.search_programs(ctx, keyword)
-    
+    async def search_programs(self, ctx, *, keyword: str):
+        await self.search_programs(ctx, keyword)
+
     @baoyan.command(name="upcoming", description="查看30天内即将截止的项目（可选标签筛选）\n示例：!baoyan upcoming 软件工程")
-    async def list_upcoming(ctx, tag: str = None):
-        await plugin.list_upcoming(ctx, tag)
-    
+    async def list_upcoming(self, ctx, tag: str = None):
+        await self.list_upcoming(ctx, tag)
+
     @baoyan.command(name="detail", description="查看项目详情（支持关键词）\n示例：!baoyan detail 北京大学")
-    async def program_detail(ctx, *, name: str):
-        await plugin.program_detail(ctx, name)
-    
+    async def program_detail(self, ctx, *, name: str):
+        await self.program_detail(ctx, name)
+
     @baoyan.command(name="tags", description="查看所有可用标签\n示例：!baoyan tags")
-    async def list_tags(ctx):
-        await plugin.list_tags(ctx)
-    
+    async def list_tags(self, ctx):
+        await self.list_tags(ctx)
+
     @baoyan.command(name="sources", description="查看所有数据源\n示例：!baoyan sources")
-    async def list_sources(ctx):
-        await plugin.list_sources(ctx)
-    
+    async def list_sources(self, ctx):
+        await self.list_sources(ctx)
+
     @baoyan.command(name="update", description="更新保研数据（需管理员权限）\n示例：!baoyan update")
     @commands.has_permissions(administrator=True)
-    async def manual_update(ctx):
-        await plugin.manual_update(ctx)
+    async def manual_update(self, ctx):
+        await self.manual_update(ctx)
 
-    plugin.start_tasks()
-    bot.add_listener(plugin.on_unload, "on_unload")
-
-class BaoyanPlugin:
-    """计算机保研信息插件"""
-    def __init__(self, bot):
-        self.bot = bot
-        self.data_sources = {}
-        self.default_source = None
-        self.last_update_time = 0
-        self.known_programs = set()
-        self.known_programs_file = os.path.join(DATA_DIR, "known_programs.json")
-        self.load_data_sources()
-        self.load_known_programs()
-        self.update_task = None
-        self.notification_task = None
     def start_tasks(self):
         self.auto_update_data.start()
         self.check_notifications.start()
@@ -542,3 +540,8 @@ class BaoyanPlugin:
                 description="保研信息数据更新失败，请稍后再试或检查网络连接。"
             )
         await ctx.reply(embed=embed) 
+
+async def setup(bot):
+    """初始化函数"""
+    ensure_data_dir()
+    await bot.add_cog(BaoyanPlugin(bot))

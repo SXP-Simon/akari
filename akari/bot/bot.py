@@ -20,34 +20,69 @@ class MyBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix=command_prefix, intents=intents)
         self._command_modules: List[str] = []
+        self._plugin_modules: List[str] = []  # 添加插件模块列表
         self.start_time = datetime.datetime.now()  # 添加启动时间记录
 
     async def setup_hook(self) -> None:
+        """Bot启动时的初始化钩子"""
         await self.load_command_modules()
         await self.load_plugins()
 
     async def load_command_modules(self) -> None:
+        """加载命令模块"""
         commands_dir = Path(__file__).parent / "commands"
         for file in commands_dir.glob("*.py"):
             if file.name.startswith("_") or file.name == "__init__.py":
                 continue
             module_name = f"akari.bot.commands.{file.stem}"
-            module = importlib.import_module(module_name)
-            if hasattr(module, "setup"):
-                await module.setup(self)
-                self._command_modules.append(module_name)
-                print(f"Loaded command module: {module_name}")
+            try:
+                module = importlib.import_module(module_name)
+                if hasattr(module, "setup"):
+                    await module.setup(self)
+                    self._command_modules.append(module_name)
+                    print(f"✅ Loaded command module: {module_name}")
+            except Exception as e:
+                print(f"❌ Failed to load command module {module_name}: {e}")
+                traceback.print_exc()
 
     async def load_plugins(self) -> None:
+        """加载插件模块"""
         plugins_dir = Path(__file__).parent.parent / "plugins"
         for file in plugins_dir.glob("*.py"):
             if file.name.startswith("_") or file.name == "__init__.py":
                 continue
             module_name = f"akari.plugins.{file.stem}"
-            module = importlib.import_module(module_name)
-            if hasattr(module, "setup"):
-                module.setup(self)
-                print(f"Loaded plugin: {module_name}")
+            try:
+                # 使用 load_extension 替代手动加载
+                await self.load_extension(module_name)
+                self._plugin_modules.append(module_name)
+                print(f"✅ Loaded plugin: {module_name}")
+            except Exception as e:
+                print(f"❌ Failed to load plugin {module_name}: {e}")
+                traceback.print_exc()
+
+    async def reload_plugin(self, plugin_name: str) -> bool:
+        """重新加载指定插件"""
+        try:
+            await self.reload_extension(f"akari.plugins.{plugin_name}")
+            print(f"🔄 Reloaded plugin: {plugin_name}")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to reload plugin {plugin_name}: {e}")
+            traceback.print_exc()
+            return False
+
+    async def unload_plugin(self, plugin_name: str) -> bool:
+        """卸载指定插件"""
+        try:
+            await self.unload_extension(f"akari.plugins.{plugin_name}")
+            self._plugin_modules.remove(f"akari.plugins.{plugin_name}")
+            print(f"❌ Unloaded plugin: {plugin_name}")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to unload plugin {plugin_name}: {e}")
+            traceback.print_exc()
+            return False
 
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
@@ -55,7 +90,7 @@ class MyBot(commands.Bot):
         # 设置游戏状态
         try:
             await self.change_presence(
-                activity=discord.Activity(type=discord.ActivityType.playing, name="使用 !help 获取帮助"),
+                activity=discord.Activity(type=discord.ActivityType.playing, name="使用 !allcmds 获取帮助"),
                 status=discord.Status.online
             )
         except Exception as e:
@@ -108,7 +143,7 @@ class MyBot(commands.Bot):
                 
                 # 创建美观的Embed
                 embed = EmbedBuilder.create(
-                    title="🤖 AI回复",
+                    title="💬 Akari回复",
                     color_key="special"
                 )
                 embed.set_author(

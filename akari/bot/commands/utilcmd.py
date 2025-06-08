@@ -30,7 +30,7 @@ async def setup(bot):
         
         # 基本信息
         embed.add_field(name="名称", value=bot.user.name, inline=True)
-        embed.add_field(name="开发者", value="MyBot2 团队", inline=True)
+        embed.add_field(name="开发者", value="Akari 团队", inline=True)
         embed.add_field(name="版本", value="1.0.0", inline=True)
         
         # 系统信息
@@ -51,7 +51,7 @@ async def setup(bot):
         )
         
         # 设置页脚
-        embed.set_footer(text="使用 !help 获取更多帮助")
+        embed.set_footer(text="使用 !allcmds 获取更多帮助")
         
         await ctx.send(embed=embed)
 

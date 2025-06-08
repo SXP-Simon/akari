@@ -82,7 +82,8 @@ uv add discord-py google-generativeai python-dotenv psutil
 
 ## 插件开发指南
 
-所有插件建议放在 `akari/plugins/` 目录下。插件需实现 `setup(bot)` 方法，并通过 `@bot.register_command` 注册命令。
+所有插件建议放在 `akari/plugins/` 目录下。简单插件需实现 `setup(bot)` 方法，并通过 `@bot.register_command` 注册命令。
+复杂插件建议使用Cog命令组方法统一注册。
 
 **示例：`akari/plugins/gemini_plugin.py`**
 ```python
@@ -117,6 +118,9 @@ def setup(bot):
 自定义命令建议放在 `akari/bot/commands/` 目录下。  
 只需新建 Python 文件并实现命令函数，参考已有的 `aicmd.py`、`utilcmd.py` 等。
 
+### 管理员插件
+请获取信任者的 Discord ID 填入 `akari/data/admin_config.json`，首次使用建议将自己的 ID 填写到超级管理员中
+
 ### 保研信息查询插件
 正常安装机器人框架即可使用
 
@@ -129,15 +133,19 @@ source .venv/bin/activate # linux
 .venv/Scripts/activate # win
 meme download
 ```
+遇到字体问题请到![/MemeCrafters/meme-generator](https://github.com/MemeCrafters/meme-generator)的Issue部分查找解决办法。
 
 ### cs开箱模拟插件
+正常安装机器人框架即可使用
+
+### rss订阅插件
 正常安装机器人框架即可使用
 
 ---
 
 ## 常见问题
 
-- **依赖安装失败**：请务必使用国内 PyPI 镜像源。
+- **依赖安装失败**：可以换源。
 - **Token/Key 未设置**：请检查 `.env` 文件内容。
 - **命令未生效**：请确认插件已正确注册，命令格式正确。
 

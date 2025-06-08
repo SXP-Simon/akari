@@ -1,0 +1,6 @@
+{
+  "title_max_length": 30,
+  "description_max_length": 500,
+  "max_items_per_poll": 3,
+  "check_interval": 5
+}

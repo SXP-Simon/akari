@@ -4,7 +4,8 @@ import google.generativeai as genai
 from akari.bot.commands import command
 from akari.bot.utils import EmbedBuilder
 
-def setup(bot):
+async def setup(bot):
+    """插件加载入口"""
     genai.configure(api_key=Settings.GOOGLE_AI_KEY)
     ai_model = genai.GenerativeModel(model_name="gemini-1.5-flash")
 
