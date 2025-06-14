@@ -43,24 +43,66 @@ uv run akari
 
 ---
 
-## 目录结构说明
+## 目录结构说明（更新版）
 
 ```
 akari/
 ├── akari/
-│   ├── main.py           # 启动入口
-│   ├── config/           # 配置与环境变量
+│   ├── __main__.py         # 启动入口（可直接 python -m akari 启动）
+│   ├── main.py             # 启动入口
+│   ├── config/             # 配置与环境变量
 │   │   └── settings.py
-│   ├── bot/              # Bot 主体与命令
-│   │   ├── bot.py
-│   │   ├── utils.py      # discord.Embed相关
-│   │   └── commands/
-│   ├── plugins/          # 插件目录
-│   │   └── gemini_plugin.py
+│   ├── bot/                # Bot 主体与命令
+│   │   ├── core/           # 核心功能（bot对象、事件、装饰器、模型等）
+│   │   │   ├── bot.py
+│   │   │   ├── events.py
+│   │   │   ├── decorators.py
+│   │   │   ├── commands.py
+│   │   │   ├── models.py
+│   │   │   └── __init__.py
+│   │   ├── commands/       # 命令扩展
+│   │   │   ├── general.py
+│   │   │   ├── utility.py
+│   │   │   └── __init__.py
+│   │   ├── services/       # 服务层（AI、基础服务等）
+│   │   │   ├── ai_service.py
+│   │   │   ├── base.py
+│   │   │   └── __init__.py
+│   │   ├── utils/          # 工具函数（Embed、错误处理等）
+│   │   │   ├── embeds.py
+│   │   │   ├── error_handler.py
+│   │   │   ├── formatters.py
+│   │   │   └── __init__.py
+│   │   └── __init__.py
+│   ├── plugins/            # 插件目录
+│   │   ├── admin_plugin.py
+│   │   ├── baoyan_plugin.py
+│   │   ├── meme_plugin.py
+│   │   ├── openweaponscase_plugin.py
+│   │   ├── restart_plugin.py
+│   │   ├── rss_plugin.py
+│   │   └── wiki_plugin.py
 │   └── __init__.py
-├── pyproject.toml        # 项目配置与依赖
+├── data/                   # 运行数据与配置
+│   ├── admin/
+│   │   └── admin_config.json
+│   ├── baoyan/
+│   │   ├── known_programs.json
+│   │   └── sources.json
+│   ├── meme/
+│   │   └── meme_templates.md
+│   ├── openweaponscase/
+│   │   ├── cases.json
+│   │   └── open_history.json
+│   └── rss/
+│       ├── rss_config.json
+│       └── rss_data.json
+├── pyproject.toml          # 项目配置与依赖
 ├── README.md
-└── .env                  # 环境变量（需自行创建）
+├── LICENSE
+├── .gitignore
+├── .python-version
+└── .env                    # 环境变量（需自行创建）
 ```
 
 ---

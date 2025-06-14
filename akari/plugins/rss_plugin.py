@@ -16,6 +16,22 @@ import asyncio
 import traceback
 from ..bot.utils import EmbedBuilder
 
+# =====================
+# akari.plugins.rss_plugin
+# =====================
+
+"""
+RssPlugin: RSS 订阅与推送插件
+
+- 支持 RSS 源订阅、管理与推送
+- Discord 命令集成
+- 数据持久化与定时任务
+
+Attributes:
+    bot (commands.Bot): 关联的 Bot 实例
+    ...
+"""
+
 @dataclass
 class RSSConfig:
     """RSS配置"""
@@ -328,33 +344,28 @@ class RSS(commands.Cog):
                         return None
                     text = await resp.text()
                     root = etree.fromstring(text.encode('utf-8'))
-                    
-                    # 尝试不同的 XPath 路径来查找标题和描述
-                    title_paths = ["//channel/title", "//feed/title", "//title"]
-                    desc_paths = ["//channel/description", "//feed/subtitle", "//feed/description", "//description"]
-                    
+                    nsmap = root.nsmap.copy() if hasattr(root, 'nsmap') else {}
+                    if None in nsmap:
+                        nsmap['atom'] = nsmap.pop(None)
+                    # 尝试不同的 XPath 路径来查找标题和描述，优先考虑命名空间
                     title = None
                     description = None
-                    
-                    # 查找标题
-                    for path in title_paths:
-                        elements = root.xpath(path)
-                        if elements and elements[0].text:
+                    # 标题
+                    for path in ["//channel/title", "//feed/title", "//atom:title", "//title"]:
+                        elements = root.xpath(path, namespaces=nsmap) if 'atom' in path else root.xpath(path)
+                        if elements and getattr(elements[0], 'text', None):
                             title = elements[0].text.strip()
                             break
-                    
-                    # 查找描述
-                    for path in desc_paths:
-                        elements = root.xpath(path)
-                        if elements and elements[0].text:
+                    # 描述
+                    for path in ["//channel/description", "//feed/subtitle", "//feed/description", "//atom:subtitle", "//description"]:
+                        elements = root.xpath(path, namespaces=nsmap) if 'atom' in path else root.xpath(path)
+                        if elements and getattr(elements[0], 'text', None):
                             description = elements[0].text.strip()
                             break
-                    
                     if not title:
                         title = "未知频道"
                     if not description:
                         description = "无描述"
-                    
                     return title, description
         except Exception as e:
             self.logger.error(f"解析RSS频道失败: {url} - {str(e)}")
@@ -367,111 +378,124 @@ class RSS(commands.Cog):
         after_link: str = "",
         num: int = None
     ) -> List[RSSItem]:
-        """从站点拉取RSS信息
-        
-        Args:
-            url: RSS源URL
-            after_timestamp: 只获取该时间戳之后的条目
-            after_link: 只获取该链接之后的条目
-            num: 获取的最大条目数，None表示使用配置中的max_items_per_poll
-        """
+        """从站点拉取RSS信息，自动兼容RSS与Atom格式"""
         try:
             async with aiohttp.ClientSession(trust_env=True) as session:
                 async with session.get(url) as resp:
                     if resp.status != 200:
                         self.logger.error(f"无法获取RSS内容: {url}")
                         return []
-                    
                     text = await resp.text()
                     root = etree.fromstring(text.encode('utf-8'))
+                    nsmap = root.nsmap.copy() if hasattr(root, 'nsmap') else {}
+                    if None in nsmap:
+                        nsmap['atom'] = nsmap.pop(None)
+                    # 1. 支持Atom //entry
                     items = root.xpath("//item")
-
+                    is_atom = False
                     if not items:
-                        self.logger.error(f"未找到RSS条目: {url}")
+                        items = root.xpath("//atom:entry", namespaces=nsmap)
+                        is_atom = True if items else False
+                    if not items:
+                        items = root.xpath("//entry")
+                        is_atom = True if items else is_atom
+                    if not items:
+                        self.logger.error(f"未找到RSS/Atom条目: {url}")
                         return []
-                    
                     max_items = num if num is not None else self.config.max_items_per_poll
                     rss_items = []
-                    
                     for item in items:
                         try:
-                            # 尝试不同的标题路径
+                            # 标题
                             title = None
-                            for title_path in ["title", ".//title"]:
-                                title_elements = item.xpath(title_path)
-                                if title_elements and title_elements[0].text:
-                                    title = title_elements[0].text.strip()
+                            for title_path in (["title", ".//title"] if not is_atom else ["atom:title", "title"]):
+                                title_elements = item.xpath(title_path, namespaces=nsmap) if 'atom' in title_path else item.xpath(title_path)
+                                if title_elements and (getattr(title_elements[0], 'text', None) or isinstance(title_elements[0], str)):
+                                    title = title_elements[0].text.strip() if hasattr(title_elements[0], 'text') and title_elements[0].text else str(title_elements[0]).strip()
                                     break
                             if not title:
                                 continue
-
                             if len(title) > self.config.title_max_length:
                                 title = title[:self.config.title_max_length] + "..."
-
-                            # 尝试不同的链接路径
+                            # 链接
                             link = None
-                            for link_path in ["link", ".//link", ".//link/@href"]:
-                                link_elements = item.xpath(link_path)
+                            if not is_atom:
+                                for link_path in ["link", ".//link", ".//link/@href"]:
+                                    link_elements = item.xpath(link_path)
+                                    if link_elements:
+                                        link = link_elements[0] if isinstance(link_elements[0], str) else link_elements[0].text
+                                        if link:
+                                            link = link.strip()
+                                            break
+                            else:
+                                link_elements = item.xpath("atom:link/@href", namespaces=nsmap)
+                                if not link_elements:
+                                    link_elements = item.xpath("link/@href")
                                 if link_elements:
-                                    if isinstance(link_elements[0], str):
-                                        link = link_elements[0]
-                                    else:
-                                        link = link_elements[0].text
-                                    if link:
-                                        link = link.strip()
-                                        break
+                                    link = link_elements[0].strip()
+                                else:
+                                    link_elements = item.xpath("atom:link", namespaces=nsmap)
+                                    if not link_elements:
+                                        link_elements = item.xpath("link")
+                                    if link_elements and hasattr(link_elements[0], 'text') and link_elements[0].text:
+                                        link = link_elements[0].text.strip()
                             if not link:
                                 continue
-
                             if not re.match(r"^https?://", link):
                                 link = self.get_root_url(url) + link
-
-                            # 尝试不同的描述路径
+                            # 描述
                             description = None
-                            for desc_path in ["description", ".//description", "content", ".//content", "summary", ".//summary"]:
-                                desc_elements = item.xpath(desc_path)
-                                if desc_elements and desc_elements[0].text:
-                                    description = desc_elements[0].text
-                                    break
+                            if not is_atom:
+                                for desc_path in ["description", ".//description", "content", ".//content", "summary", ".//summary"]:
+                                    desc_elements = item.xpath(desc_path)
+                                    if desc_elements and getattr(desc_elements[0], 'text', None):
+                                        description = desc_elements[0].text
+                                        break
+                            else:
+                                for desc_path in ["atom:summary", "atom:content", "summary", "content"]:
+                                    desc_elements = item.xpath(desc_path, namespaces=nsmap) if 'atom' in desc_path else item.xpath(desc_path)
+                                    if desc_elements and (getattr(desc_elements[0], 'text', None) or isinstance(desc_elements[0], str)):
+                                        description = desc_elements[0].text if hasattr(desc_elements[0], 'text') and desc_elements[0].text else str(desc_elements[0])
+                                        break
                             if not description:
                                 description = "无描述"
-
                             pic_urls = self.extract_images(description)
                             description = self.strip_html(description)
-
                             if len(description) > self.config.description_max_length:
                                 description = description[:self.config.description_max_length] + "..."
-
-                            # 尝试获取频道标题
+                            # 频道标题
                             chan_title = ""
-                            for chan_title_path in ["//channel/title", "//feed/title"]:
-                                chan_elements = root.xpath(chan_title_path)
-                                if chan_elements and chan_elements[0].text:
+                            for chan_title_path in ["//channel/title", "//feed/title", "//atom:title"]:
+                                chan_elements = root.xpath(chan_title_path, namespaces=nsmap) if 'atom' in chan_title_path else root.xpath(chan_title_path)
+                                if chan_elements and getattr(chan_elements[0], 'text', None):
                                     chan_title = chan_elements[0].text.strip()
                                     break
-
-                            # 尝试不同的日期格式
+                            # 时间
                             pub_date = ""
                             pub_date_timestamp = 0
-                            for date_path in ["pubDate", ".//pubDate", "published", ".//published", "updated", ".//updated"]:
-                                date_elements = item.xpath(date_path)
-                                if date_elements and date_elements[0].text:
-                                    pub_date = date_elements[0].text.strip()
+                            if not is_atom:
+                                date_paths = ["pubDate", ".//pubDate", "published", ".//published", "updated", ".//updated"]
+                            else:
+                                date_paths = ["atom:updated", "atom:published", "updated", "published"]
+                            for date_path in date_paths:
+                                date_elements = item.xpath(date_path, namespaces=nsmap) if 'atom' in date_path else item.xpath(date_path)
+                                if date_elements and (getattr(date_elements[0], 'text', None) or isinstance(date_elements[0], str)):
+                                    pub_date = date_elements[0].text.strip() if hasattr(date_elements[0], 'text') and date_elements[0].text else str(date_elements[0]).strip()
                                     try:
-                                        # 尝试不同的日期格式
                                         date_formats = [
-                                            "%a, %d %b %Y %H:%M:%S %z",  # RSS标准格式
-                                            "%Y-%m-%dT%H:%M:%S%z",       # ISO 8601
-                                            "%Y-%m-%dT%H:%M:%SZ",        # ISO 8601 UTC
-                                            "%Y-%m-%d %H:%M:%S"          # 简单格式
+                                            "%a, %d %b %Y %H:%M:%S %z",
+                                            "%Y-%m-%dT%H:%M:%S%z",
+                                            "%Y-%m-%dT%H:%M:%SZ",
+                                            "%Y-%m-%d %H:%M:%S"
                                         ]
                                         for date_format in date_formats:
                                             try:
-                                                if "GMT" in pub_date:
-                                                    pub_date = pub_date.replace("GMT", "+0000")
-                                                if "Z" in pub_date:
-                                                    pub_date = pub_date.replace("Z", "+0000")
-                                                pub_date_parsed = time.strptime(pub_date, date_format)
+                                                dt = pub_date
+                                                if "GMT" in dt:
+                                                    dt = dt.replace("GMT", "+0000")
+                                                if "Z" in dt:
+                                                    dt = dt.replace("Z", "+0000")
+                                                pub_date_parsed = time.strptime(dt, date_format)
                                                 pub_date_timestamp = int(time.mktime(pub_date_parsed))
                                                 break
                                             except ValueError:
@@ -482,7 +506,6 @@ class RSS(commands.Cog):
                                     except:
                                         pub_date_timestamp = int(time.time())
                                     break
-
                             if pub_date_timestamp > after_timestamp or (pub_date_timestamp == 0 and link != after_link):
                                 rss_items.append(
                                     RSSItem(
@@ -495,17 +518,13 @@ class RSS(commands.Cog):
                                         pic_urls=pic_urls
                                     )
                                 )
-                                
-                                # 如果达到最大条目数，停止处理
                                 if max_items > 0 and len(rss_items) >= max_items:
                                     break
                             else:
                                 break
-
                         except Exception as e:
-                            self.logger.error(f"解析RSS条目失败: {url} - {str(e)}")
+                            self.logger.error(f"解析RSS/Atom条目失败: {url} - {str(e)}")
                             continue
-
                     return rss_items
         except Exception as e:
             self.logger.error(f"获取RSS内容失败: {url} - {str(e)}\n{traceback.format_exc()}")

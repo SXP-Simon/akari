@@ -7,7 +7,7 @@ from discord.ext import commands
 from meme_generator import get_meme, get_meme_keys, get_memes
 from meme_generator.exception import MemeGeneratorException, NoSuchMeme
 from meme_generator.utils import render_meme_list
-from akari.bot.utils import EmbedBuilder
+from akari.bot.utils import EmbedBuilder, EmbedData
 import imghdr  # 添加imghdr模块用于检测图片格式
 import os
 
@@ -99,55 +99,57 @@ class MemePlugin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(name="meme", description="表情包生成器（输入 !meme help 查看详细用法）", invoke_without_command=True)
+    @commands.hybrid_group(name="meme", description="表情包生成器", invoke_without_command=True)
     async def meme_group(self, ctx):
         """表情包生成器命令组"""
         if ctx.invoked_subcommand is None:
             await self.show_help(ctx)
 
-    @meme_group.command(name="help", description="meme命令帮助", hidden=True)
+    @meme_group.command(name="help", description="显示meme命令帮助")
     async def meme_help(self, ctx):
         """显示meme命令帮助"""
         await self.show_help(ctx)
 
-    @meme_group.command(name="templates", aliases=["tpls", "list"], description="列出可用表情包模板", hidden=True)
+    @meme_group.command(name="templates", aliases=["tpls", "list"], description="列出可用表情包模板")
     async def meme_templates(self, ctx):
         """列出可用表情包模板"""
         await self.list_templates(ctx)
 
-    @meme_group.command(name="detail", aliases=["info", "详情"], description="查看指定meme模板参数", hidden=True)
+    @meme_group.command(name="detail", aliases=["info", "详情"], description="查看指定meme模板参数")
     async def meme_detail(self, ctx, template: str):
         """查看指定meme模板详情"""
         await self.show_template_detail(ctx, template)
 
-    @meme_group.command(name="blacklist", description="查看禁用的meme模板", hidden=True)
+    @meme_group.command(name="blacklist", description="查看禁用的meme模板")
     async def meme_blacklist(self, ctx):
         """查看禁用的meme模板"""
         await self.show_blacklist(ctx)
 
-    @meme_group.command(name="disable", aliases=["禁用"], description="禁用某个meme模板", hidden=True)
+    @meme_group.command(name="disable", aliases=["禁用"], description="禁用某个meme模板")
     async def disable_meme(self, ctx, template: str):
         """禁用meme模板"""
         await self.disable_template(ctx, template)
 
-    @meme_group.command(name="enable", aliases=["启用"], description="启用某个meme模板", hidden=True)
+    @meme_group.command(name="enable", aliases=["启用"], description="启用某个meme模板")
     async def enable_meme(self, ctx, template: str):
         """启用meme模板"""
         await self.enable_template(ctx, template)
 
-    @meme_group.command(name="generate", aliases=["gen", "创建"], description="生成表情包", hidden=True)
-    async def generate_meme(self, ctx, template: str, *args: str):
+    @meme_group.command(name="generate", aliases=["gen", "创建"], description="生成表情包")
+    async def generate_meme(self, ctx, template: str, *, args: str = ""):
         """生成表情包"""
-        await self.generate(ctx, template, *args)
+        args_list = args.split() if args else []
+        await self.generate(ctx, template, *args_list)
 
-    @commands.command(name="memegen", aliases=["表情包"], description="生成表情包：!memegen 模板名 [文本1 文本2 ...] [@用户1 @用户2 ...]...（可带图片/图片URL/key=value）", hidden=True)
-    async def meme_direct(self, ctx, template: str = None, *args: str):
+    @meme_group.command(name="memegen", aliases=["表情包"], description="生成表情包")
+    async def meme_direct(self, ctx, template: str = None, *, args: str = ""):
         """直接生成表情包（兼容性命令）"""
         if template is None:
             await self.show_help(ctx)
         else:
-            await self.generate(ctx, template, *args)
-    
+            args_list = args.split() if args else []
+            await self.generate(ctx, template, *args_list)
+
     @commands.command(name="memehelp", description="meme命令帮助", hidden=True)
     async def memehelp_direct(self, ctx):
         """显示meme命令帮助（兼容性命令）"""
@@ -160,10 +162,11 @@ class MemePlugin(commands.Cog):
 
     async def show_help(self, ctx):
         """显示meme命令帮助"""
-        embed = EmbedBuilder.info(
+        embed = EmbedBuilder.create(EmbedData(
             title="表情包生成器帮助",
-            description="使用简单的命令生成各种表情包"
-        )
+            description="使用简单的命令生成各种表情包",
+            color=EmbedBuilder.THEME.info
+        ))
         
         embed.add_field(
             name="基本用法",
@@ -214,11 +217,11 @@ class MemePlugin(commands.Cog):
         total_memes = len(keys)
         
         # 创建主Embed
-        main_embed = EmbedBuilder.create(
+        main_embed = EmbedBuilder.create(EmbedData(
             title="📸 表情包模板列表",
             description=f"当前共有 {total_memes} 个可用模板",
-            color_key="special"
-        )
+            color=EmbedBuilder.THEME.special
+        ))
 
         # 生成markdown内容
         markdown_content = [
@@ -294,7 +297,11 @@ class MemePlugin(commands.Cog):
             template_key = find_template_by_name_or_keyword(template)
             meme = get_meme(template_key)
         except NoSuchMeme:
-            embed = EmbedBuilder.error("未找到模板", f"没有找到模板：{template}")
+            embed = EmbedBuilder.create(EmbedData(
+                title="未找到模板",
+                description=f"没有找到模板：{template}",
+                color=EmbedBuilder.THEME.error
+            ))
             await ctx.reply(embed=embed)
             return
         
@@ -376,20 +383,22 @@ class MemePlugin(commands.Cog):
     async def show_blacklist(self, ctx):
         """查看禁用的meme模板"""
         if MEME_DISABLED_LIST:
-            embed = EmbedBuilder.warning(
+            embed = EmbedBuilder.create(EmbedData(
                 title="已禁用的模板", 
-                description="以下模板已被禁用，无法使用"
-            )
+                description="以下模板已被禁用，无法使用",
+                color=EmbedBuilder.THEME.warning
+            ))
             embed.add_field(
                 name="禁用列表",
                 value="、".join(MEME_DISABLED_LIST),
                 inline=False
             )
         else:
-            embed = EmbedBuilder.success(
+            embed = EmbedBuilder.create(EmbedData(
                 title="无禁用模板",
-                description="当前没有禁用的模板，所有模板均可使用"
-            )
+                description="当前没有禁用的模板，所有模板均可使用",
+                color=EmbedBuilder.THEME.success
+            ))
         
         await ctx.reply(embed=embed)
 
@@ -400,16 +409,18 @@ class MemePlugin(commands.Cog):
             template_key = find_template_by_name_or_keyword(template)
             MEME_DISABLED_LIST.add(template_key)
             
-            embed = EmbedBuilder.success(
+            embed = EmbedBuilder.create(EmbedData(
                 title="模板已禁用",
-                description=f"已成功禁用模板：`{template_key}`"
-            )
+                description=f"模板 `{template_key}` 已被禁用，无法使用",
+                color=EmbedBuilder.THEME.warning
+            ))
             await ctx.reply(embed=embed)
         except NoSuchMeme:
-            embed = EmbedBuilder.error(
+            embed = EmbedBuilder.create(EmbedData(
                 title="模板不存在",
-                description=f"无法禁用不存在的模板：`{template}`"
-            )
+                description=f"无法禁用不存在的模板：`{template}`",
+                color=EmbedBuilder.THEME.error
+            ))
             await ctx.reply(embed=embed)
 
     async def enable_template(self, ctx, template: str):
@@ -419,21 +430,24 @@ class MemePlugin(commands.Cog):
             template_key = find_template_by_name_or_keyword(template)
             if template_key in MEME_DISABLED_LIST:
                 MEME_DISABLED_LIST.remove(template_key)
-                embed = EmbedBuilder.success(
+                embed = EmbedBuilder.create(EmbedData(
                     title="模板已启用",
-                    description=f"已成功启用模板：`{template_key}`"
-                )
+                    description=f"已成功启用模板：`{template_key}`",
+                    color=EmbedBuilder.THEME.success
+                ))
             else:
-                embed = EmbedBuilder.info(
+                embed = EmbedBuilder.create(EmbedData(
                     title="模板未被禁用",
-                    description=f"模板 `{template_key}` 未被禁用，无需启用"
-                )
+                    description=f"模板 `{template_key}` 未被禁用，无需启用",
+                    color=EmbedBuilder.THEME.info
+                ))
             await ctx.reply(embed=embed)
         except NoSuchMeme:
-            embed = EmbedBuilder.error(
+            embed = EmbedBuilder.create(EmbedData(
                 title="模板不存在",
-                description=f"无法启用不存在的模板：`{template}`"
-            )
+                description=f"无法启用不存在的模板：`{template}`",
+                color=EmbedBuilder.THEME.error
+            ))
             await ctx.reply(embed=embed)
 
     async def generate(self, ctx, template: str, *args: str):
@@ -442,10 +456,11 @@ class MemePlugin(commands.Cog):
             # 使用find_template_by_name_or_keyword函数来支持中文模板名
             template_key = find_template_by_name_or_keyword(template)
             if template_key in MEME_DISABLED_LIST:
-                embed = EmbedBuilder.warning(
+                embed = EmbedBuilder.create(EmbedData(
                     title="模板已禁用",
-                    description=f"模板 `{template_key}` 已被禁用，无法使用"
-                )
+                    description=f"模板 `{template_key}` 已被禁用，无法使用",
+                    color=EmbedBuilder.THEME.warning
+                ))
                 await ctx.reply(embed=embed)
                 return
         except NoSuchMeme:
@@ -461,10 +476,11 @@ class MemePlugin(commands.Cog):
                         info += f" (别名: {', '.join(meme.keywords)})"
                 template_info.append(info)
             
-            embed = EmbedBuilder.error(
+            embed = EmbedBuilder.create(EmbedData(
                 title="模板不存在", 
-                description=f"没有找到模板：`{template}`\n可用模板：\n" + "\n".join(template_info) + "\n..."
-            )
+                description=f"没有找到模板：`{template}`\n可用模板：\n" + "\n".join(template_info) + "\n...",
+                color=EmbedBuilder.THEME.error
+            ))
             await ctx.reply(embed=embed)
             return
         
@@ -534,10 +550,10 @@ class MemePlugin(commands.Cog):
             img_format = detect_image_format(img_bytes)
             
             # 创建生成结果的Embed
-            embed = EmbedBuilder.create(
+            embed = EmbedBuilder.create(EmbedData(
                 title=f"表情包：{template_key}",
-                color_key="success"
-            )
+                color=EmbedBuilder.THEME.success
+            ))
             embed.set_author(
                 name=f"{ctx.author.display_name} 生成的表情包",
                 icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
@@ -547,19 +563,21 @@ class MemePlugin(commands.Cog):
             await ctx.send(embed=embed, file=File(img_bytes, filename=f"{template_key}.{img_format}"))
             
         except MemeGeneratorException as e:
-            embed = EmbedBuilder.error(
+            embed = EmbedBuilder.create(EmbedData(
                 title="生成失败",
-                description=f"生成表情包失败: {e}"
-            )
+                description=f"生成表情包失败: {e}",
+                color=EmbedBuilder.THEME.error
+            ))
             await ctx.reply(embed=embed)
             
         except Exception as e:
-            embed = EmbedBuilder.error(
+            embed = EmbedBuilder.create(EmbedData(
                 title="未知错误",
-                description=f"生成过程中出现未知错误: {e}"
-            )
+                description=f"生成过程中出现未知错误: {e}",
+                color=EmbedBuilder.THEME.error
+            ))
             await ctx.reply(embed=embed)
 
 async def setup(bot):
-    """加载表情包生成器插件"""
+    """插件加载入口"""
     await bot.add_cog(MemePlugin(bot)) 

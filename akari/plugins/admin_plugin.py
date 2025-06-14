@@ -6,6 +6,22 @@ from typing import Set, Dict, Optional
 from dataclasses import dataclass
 from ..bot.utils import EmbedBuilder
 
+# =====================
+# akari.plugins.admin_plugin
+# =====================
+
+"""
+AdminPlugin: 管理员工具插件
+
+- 支持服务器管理、用户管理等操作
+- Discord 命令集成
+- 权限控制与日志
+
+Attributes:
+    bot (commands.Bot): 关联的 Bot 实例
+    ...
+"""
+
 @dataclass
 class AdminConfig:
     """管理员配置"""
