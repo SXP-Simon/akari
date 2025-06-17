@@ -1,0 +1,41 @@
+{
+    "similarity": 70,
+    "cache_dir": "cache",
+    "token_refresh_interval": 60,
+    "max_retries": 3,
+    "api": {
+        "base_url": "https://api.ymgal.games",
+        "timeout": 30,
+        "user_agent": "DiscordBot/1.0"
+    },
+    "image": {
+        "max_size_bytes": 5242880,
+        "formats": ["jpg", "png", "webp"],
+        "default_format": "jpg"
+    },
+    "search": {
+        "max_results": 10,
+        "min_similarity": 50,
+        "fuzzy_timeout": 10
+    },
+    "cache": {
+        "image_max_age_days": 7,
+        "image_max_size_mb": 100,
+        "api_ttl_seconds": 3600,
+        "api_max_entries": 128
+    },
+    "cooldown": {
+        "search": {
+            "rate": 1,
+            "per": 5
+        },
+        "fuzzy": {
+            "rate": 1,
+            "per": 10
+        },
+        "info": {
+            "rate": 1,
+            "per": 5
+        }
+    }
+} 

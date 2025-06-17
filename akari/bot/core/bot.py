@@ -205,20 +205,29 @@ class MyBot(commands.Bot):
         加载 akari.plugins 目录下的所有插件。
         每个插件需实现 async def setup(bot) 方法。
         加载成功后记录日志。
+        支持子目录中的插件。
         """
         plugins_dir = Path(__file__).parent.parent.parent / "plugins"
-        for file in plugins_dir.glob("*.py"):
+        
+        # 递归搜索所有Python文件
+        for file in plugins_dir.rglob("*.py"):
             if file.name.startswith("_") or file.name == "__init__.py":
                 continue
-            module_name = f"akari.plugins.{file.stem}"
+                
+            # 构建模块名
             try:
+                relative_path = file.relative_to(plugins_dir)
+                module_name = f"akari.plugins.{str(relative_path).replace('\\', '.').replace('/', '.')[:-3]}"  # 移除.py后缀
+                
                 module = importlib.import_module(module_name)
                 if hasattr(module, "setup"):
                     await module.setup(self)
                     self._plugin_modules.append(module_name)
                     self.logger.info(f"✅ 已加载插件: {module_name}")
+                else:
+                    self.logger.debug(f"跳过插件 {module_name}: 未找到setup函数")
             except Exception as e:
-                self.logger.error(f"❌ 加载插件 {module_name} 失败: {e}")
+                self.logger.error(f"❌ 加载插件 {module_name} 失败: {str(e)}")
                 if self.debug_mode:
                     self.logger.debug(f"错误堆栈:\n{traceback.format_exc()}")
 

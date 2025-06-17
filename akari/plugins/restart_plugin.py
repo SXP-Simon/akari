@@ -3,7 +3,7 @@ from discord.ext import commands
 import sys
 import os
 import asyncio
-from .admin_plugin import super_admin_required
+from .admin.decorators import super_admin_required
 from ..bot.utils import EmbedBuilder
 
 # =====================

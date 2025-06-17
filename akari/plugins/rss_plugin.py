@@ -5,6 +5,8 @@ import time
 import re
 import json
 import os
+import ssl
+import asyncio
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Union
 from bs4 import BeautifulSoup
@@ -41,6 +43,7 @@ class RSSConfig:
     check_interval: int = 5
     is_hide_url: bool = False
     pic_config: Dict[str, Union[bool, int]] = None
+    verify_ssl: bool = True  # 新增：是否验证SSL证书
 
     def __post_init__(self):
         if self.pic_config is None:
@@ -59,6 +62,16 @@ class RSSItem:
     pubDate: str
     pubDate_timestamp: int
     pic_urls: List[str]
+    source_type: str = "RSS"  # RSS 或 Atom
+    author: str = ""
+    categories: List[str] = None
+    icon_url: str = ""
+    content: str = ""  # 完整内容
+    summary: str = ""  # 摘要
+    
+    def __post_init__(self):
+        if self.categories is None:
+            self.categories = []
 
     def __str__(self):
         return f"{self.title} - {self.link} - {self.description} - {self.pubDate}"
@@ -189,6 +202,9 @@ class RSS(commands.Cog):
         # 加载或创建默认配置
         self.config = self._load_or_create_config()
         
+        # 设置SSL上下文
+        self.ssl_context = self._create_ssl_context()
+        
         # 创建RSS检查任务
         self._setup_rss_task()
 
@@ -204,7 +220,8 @@ class RSS(commands.Cog):
                         max_items_per_poll=data.get("max_items_per_poll", 3),
                         check_interval=data.get("check_interval", 5),
                         is_hide_url=data.get("is_hide_url", False),
-                        pic_config=data.get("pic_config", None)
+                        pic_config=data.get("pic_config", None),
+                        verify_ssl=data.get("verify_ssl", True)  # 新增：SSL验证配置
                     )
             else:
                 config = RSSConfig()
@@ -224,12 +241,20 @@ class RSS(commands.Cog):
                 "max_items_per_poll": config.max_items_per_poll,
                 "check_interval": config.check_interval,
                 "is_hide_url": config.is_hide_url,
-                "pic_config": config.pic_config
+                "pic_config": config.pic_config,
+                "verify_ssl": config.verify_ssl  # 新增：SSL验证配置
             }
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             self.logger.error(f"保存RSS配置失败: {str(e)}")
+
+    def _create_ssl_context(self) -> ssl.SSLContext:
+        """创建SSL上下文"""
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = True
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+        return ssl_context
 
     def _setup_rss_task(self):
         """设置RSS检查任务"""
@@ -301,75 +326,251 @@ class RSS(commands.Cog):
 
     async def _create_rss_embed(self, item: RSSItem) -> discord.Embed:
         """创建RSS消息的Embed"""
+        # 处理描述
         description = item.description
         if len(description) > self.config.description_max_length:
             description = description[:self.config.description_max_length] + "..."
 
-        # 添加RSS源名称作为前缀
-        title_prefix = f"[{item.chan_title}] " if item.chan_title else ""
-        title = title_prefix + item.title[:self.config.title_max_length]
+        # 根据源类型设置不同的颜色和图标
+        if "github.com" in item.link:
+            color = 0x24292e  # GitHub深色
+            icon_url = "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+            title = f"🔔 {item.title}"
+        else:
+            color = 0xFFA500  # RSS橙色
+            icon_url = None
+            title = item.title
 
-        embed = EmbedBuilder.info(
+        # 创建嵌入消息
+        embed = discord.Embed(
             title=title,
-            description=description
+            url=item.link if not self.config.is_hide_url else None,
+            description=description,
+            color=color,
+            timestamp=datetime.fromtimestamp(item.pubDate_timestamp) if item.pubDate_timestamp else discord.utils.utcnow()
         )
 
-        if not self.config.is_hide_url:
-            embed.url = item.link
-
-        embed.timestamp = datetime.fromtimestamp(item.pubDate_timestamp) if item.pubDate_timestamp else discord.utils.utcnow()
+        # 添加来源信息
+        if icon_url:
+            embed.set_author(name=item.chan_title, icon_url=icon_url)
+        else:
+            embed.set_author(name=item.chan_title)
         
+        # 添加图片
         if item.pic_urls and self.config.pic_config["is_read_pic"]:
             max_pics = self.config.pic_config["max_pic_item"]
             for i, pic_url in enumerate(item.pic_urls[:max_pics]):
                 if i == 0:
                     embed.set_image(url=pic_url)
                 else:
-                    # 对于额外的图片，添加到字段中
-                    embed.add_field(name=f"附图 {i+1}", value=pic_url, inline=False)
+                    embed.add_field(
+                        name=f"附图 {i+1}",
+                        value=f"[查看图片]({pic_url})",
+                        inline=True
+                    )
 
         return embed
+
+    def _format_error(self, error: Exception) -> str:
+        """格式化错误信息"""
+        if isinstance(error, aiohttp.ClientError):
+            return f"网络错误: {str(error)}\n建议检查网络连接或稍后重试"
+        elif isinstance(error, etree.XMLSyntaxError):
+            return f"XML解析错误: {str(error)}\n源格式可能不正确"
+        elif isinstance(error, RSSNetworkError):
+            if "SSL" in str(error):
+                return f"{str(error)}\n可以尝试使用 `!rss config set verify_ssl false` 关闭SSL验证"
+            return str(error)
+        elif isinstance(error, RSSParseError):
+            return f"解析错误: {str(error)}\n源内容可能不是有效的RSS/Atom格式"
+        else:
+            return f"未知错误: {str(error)}"
+
+    async def _handle_feed_error(self, ctx, url: str, error: Exception):
+        """处理Feed错误"""
+        error_msg = self._format_error(error)
+        
+        embed = EmbedBuilder.error(
+            title="RSS处理失败",
+            description=f"处理RSS源时发生错误:\n```{error_msg}```"
+        )
+        
+        embed.add_field(
+            name="源信息",
+            value=f"**URL:** {url}",
+            inline=False
+        )
+        
+        if isinstance(error, RSSNetworkError) and "SSL" in str(error):
+            embed.add_field(
+                name="建议操作",
+                value="1. 检查URL是否正确\n2. 尝试关闭SSL验证: `!rss config set verify_ssl false`\n3. 等待几分钟后重试",
+                inline=False
+            )
+        elif isinstance(error, RSSParseError):
+            embed.add_field(
+                name="建议操作",
+                value="1. 检查URL是否为有效的RSS/Atom源\n2. 在浏览器中打开URL检查内容\n3. 使用 `!rss test <url>` 测试源",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
 
     def cog_unload(self):
         """插件卸载时的清理工作"""
         if self.check_rss_updates.is_running():
             self.check_rss_updates.cancel()
 
+    def _normalize_url(self, url: str) -> str:
+        """规范化URL"""
+        # 处理GitHub URL
+        if "github.com" in url:
+            # 移除末尾的斜杠
+            url = url.rstrip("/")
+            
+            # 处理用户活动feed
+            if url.endswith(".atom"):
+                return url
+            
+            # 处理仓库feed
+            if not url.endswith("/releases.atom"):
+                # 检查是否是仓库URL
+                parts = url.split("/")
+                if len(parts) >= 5 and parts[2] == "github.com":
+                    # 添加releases.atom
+                    return f"{url}/releases.atom"
+        
+        return url
+
+    def _handle_ssl_error(self, error: Exception) -> str:
+        """处理SSL错误"""
+        error_str = str(error)
+        if "CERTIFICATE_VERIFY_FAILED" in error_str:
+            return "SSL证书验证失败，可能是自签名证书或证书过期"
+        elif "WRONG_VERSION_NUMBER" in error_str:
+            return "SSL版本不匹配，服务器可能不支持安全连接"
+        elif "DECRYPTION_FAILED_OR_BAD_RECORD_MAC" in error_str:
+            return "SSL解密失败，可能是网络问题或代理设置导致"
+        else:
+            return f"SSL错误: {error_str}"
+
     async def parse_rss_feed(self, url: str) -> Optional[tuple[str, str]]:
         """解析RSS频道信息"""
         try:
-            async with aiohttp.ClientSession(trust_env=True) as session:
-                async with session.get(url) as resp:
+            # 规范化URL
+            url = self._normalize_url(url)
+            
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+            timeout = aiohttp.ClientTimeout(total=30)
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "application/atom+xml,application/xml,application/rss+xml,text/xml;q=0.9,*/*;q=0.8"
+            }
+            
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                async with session.get(url, headers=headers) as resp:
                     if resp.status != 200:
+                        self.logger.error(f"获取RSS源失败: {url}, 状态码: {resp.status}")
                         return None
-                    text = await resp.text()
-                    root = etree.fromstring(text.encode('utf-8'))
-                    nsmap = root.nsmap.copy() if hasattr(root, 'nsmap') else {}
-                    if None in nsmap:
-                        nsmap['atom'] = nsmap.pop(None)
-                    # 尝试不同的 XPath 路径来查找标题和描述，优先考虑命名空间
+                    
+                    try:
+                        text = await resp.text()
+                    except UnicodeDecodeError:
+                        # 如果UTF-8解码失败，尝试其他编码
+                        content = await resp.read()
+                        for encoding in ['utf-8', 'gbk', 'gb2312', 'iso-8859-1']:
+                            try:
+                                text = content.decode(encoding)
+                                break
+                            except UnicodeDecodeError:
+                                continue
+                        else:
+                            self.logger.error(f"无法解码RSS内容: {url}")
+                            return None
+
+                    try:
+                        root = etree.fromstring(text.encode('utf-8'))
+                    except etree.XMLSyntaxError as e:
+                        # 尝试修复常见的XML问题
+                        text = text.replace('&', '&amp;')
+                        try:
+                            root = etree.fromstring(text.encode('utf-8'))
+                        except etree.XMLSyntaxError:
+                            self.logger.error(f"解析RSS XML失败: {url}, 错误: {str(e)}")
+                            return None
+                    
+                    # 获取所有命名空间
+                    namespaces = {}
+                    for key, value in root.nsmap.items():
+                        if key is not None:
+                            namespaces[key] = value
+                        else:
+                            # 处理默认命名空间
+                            namespaces['default'] = value
+
+                    # 检测feed类型
+                    is_atom = root.tag.endswith('feed')
+                    
+                    # 根据feed类型选择不同的XPath
+                    if is_atom:
+                        title_paths = [
+                            "//default:title/text()",
+                            "//atom:title/text()",
+                            "//title/text()"
+                        ]
+                        desc_paths = [
+                            "//default:subtitle/text()",
+                            "//atom:subtitle/text()",
+                            "//default:summary/text()",
+                            "//atom:summary/text()"
+                        ]
+                    else:
+                        title_paths = [
+                            "//channel/title/text()",
+                            "//default:title/text()",
+                            "//title/text()"
+                        ]
+                        desc_paths = [
+                            "//channel/description/text()",
+                            "//default:description/text()",
+                            "//description/text()"
+                        ]
+
+                    # 尝试获取标题
                     title = None
+                    for xpath in title_paths:
+                        try:
+                            titles = root.xpath(xpath, namespaces=namespaces)
+                            if titles:
+                                title = titles[0].strip()
+                            break
+                        except:
+                            continue
+                    
+                    # 尝试获取描述
                     description = None
-                    # 标题
-                    for path in ["//channel/title", "//feed/title", "//atom:title", "//title"]:
-                        elements = root.xpath(path, namespaces=nsmap) if 'atom' in path else root.xpath(path)
-                        if elements and getattr(elements[0], 'text', None):
-                            title = elements[0].text.strip()
+                    for xpath in desc_paths:
+                        try:
+                            descs = root.xpath(xpath, namespaces=namespaces)
+                            if descs:
+                                description = descs[0].strip()
                             break
-                    # 描述
-                    for path in ["//channel/description", "//feed/subtitle", "//feed/description", "//atom:subtitle", "//description"]:
-                        elements = root.xpath(path, namespaces=nsmap) if 'atom' in path else root.xpath(path)
-                        if elements and getattr(elements[0], 'text', None):
-                            description = elements[0].text.strip()
-                            break
+                        except:
+                            continue
+                    
                     if not title:
                         title = "未知频道"
                     if not description:
                         description = "无描述"
+                    
                     return title, description
+
+        except aiohttp.ClientError as e:
+            self.logger.error(f"获取RSS源网络错误: {url} - {str(e)}")
+            raise RSSNetworkError(f"网络错误: {str(e)}")
         except Exception as e:
-            self.logger.error(f"解析RSS频道失败: {url} - {str(e)}")
-            return None
+            self.logger.error(f"解析RSS源失败: {url} - {str(e)}")
+            raise RSSParseError(f"解析错误: {str(e)}")
 
     async def fetch_rss_items(
         self,
@@ -378,134 +579,119 @@ class RSS(commands.Cog):
         after_link: str = "",
         num: int = None
     ) -> List[RSSItem]:
-        """从站点拉取RSS信息，自动兼容RSS与Atom格式"""
+        """从站点拉取RSS信息"""
         try:
-            async with aiohttp.ClientSession(trust_env=True) as session:
+            # 规范化URL
+            url = self._normalize_url(url)
+            
+            # 配置SSL上下文
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # 配置连接器和超时
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            timeout = aiohttp.ClientTimeout(total=30)
+            
+            # 设置请求头
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept": "application/atom+xml,application/xml,application/rss+xml,text/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Connection": "close"  # 避免保持连接
+            }
+            
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                headers=headers,
+                trust_env=True
+            ) as session:
                 async with session.get(url) as resp:
                     if resp.status != 200:
-                        self.logger.error(f"无法获取RSS内容: {url}")
+                        self.logger.error(f"获取RSS源失败: {url}, 状态码: {resp.status}")
                         return []
-                    text = await resp.text()
-                    root = etree.fromstring(text.encode('utf-8'))
-                    nsmap = root.nsmap.copy() if hasattr(root, 'nsmap') else {}
-                    if None in nsmap:
-                        nsmap['atom'] = nsmap.pop(None)
-                    # 1. 支持Atom //entry
-                    items = root.xpath("//item")
-                    is_atom = False
-                    if not items:
-                        items = root.xpath("//atom:entry", namespaces=nsmap)
-                        is_atom = True if items else False
-                    if not items:
-                        items = root.xpath("//entry")
-                        is_atom = True if items else is_atom
+                    
+                    try:
+                        text = await resp.text()
+                        # 尝试修复常见的XML问题
+                        text = text.replace('xmlns=""', '')  # 移除空的命名空间声明
+                        text = re.sub(r'xmlns:([a-zA-Z0-9]+)=""', '', text)  # 移除空的前缀命名空间
+                        
+                        # 解析XML
+                        parser = etree.XMLParser(recover=True)  # 启用恢复模式
+                        root = etree.fromstring(text.encode('utf-8'), parser=parser)
+                    except Exception as e:
+                        self.logger.error(f"解析RSS内容失败: {url} - {str(e)}")
+                        return []
+
+                    # 获取所有命名空间
+                    namespaces = {}
+                    for key, value in root.nsmap.items():
+                        if key is None:
+                            namespaces['default'] = value
+                            namespaces['atom'] = value  # 为Atom格式添加显式命名空间
+                        else:
+                            namespaces[key] = value
+
+                    # 检测feed类型
+                    is_atom = 'http://www.w3.org/2005/Atom' in root.nsmap.values()
+                    
+                    # 根据feed类型选择不同的XPath
+                    if is_atom:
+                        items = root.xpath("//entry | //atom:entry", namespaces=namespaces)
+                        chan_title = self._get_feed_title(root, namespaces, is_atom)
+                        if "github.com" in url:
+                            # 为GitHub源添加额外信息
+                            repo_info = self._get_github_repo_info(root, namespaces)
+                            if repo_info:
+                                chan_title = f"GitHub - {repo_info}"
+                    else:
+                        items = root.xpath("//item", namespaces=namespaces)
+                        chan_title = self._get_feed_title(root, namespaces, is_atom)
+
                     if not items:
                         self.logger.error(f"未找到RSS/Atom条目: {url}")
                         return []
+                    
                     max_items = num if num is not None else self.config.max_items_per_poll
                     rss_items = []
+                    
                     for item in items:
                         try:
-                            # 标题
-                            title = None
-                            for title_path in (["title", ".//title"] if not is_atom else ["atom:title", "title"]):
-                                title_elements = item.xpath(title_path, namespaces=nsmap) if 'atom' in title_path else item.xpath(title_path)
-                                if title_elements and (getattr(title_elements[0], 'text', None) or isinstance(title_elements[0], str)):
-                                    title = title_elements[0].text.strip() if hasattr(title_elements[0], 'text') and title_elements[0].text else str(title_elements[0]).strip()
-                                    break
-                            if not title:
+                            # 根据feed类型获取信息
+                            if is_atom:
+                                title = self._get_text(item, ["title", "atom:title"], namespaces)
+                                link = self._get_link(item, namespaces)
+                                content = self._get_text(item, [
+                                    "content", "atom:content",
+                                    "summary", "atom:summary"
+                                ], namespaces)
+                                updated = self._get_text(item, [
+                                    "updated", "atom:updated",
+                                    "published", "atom:published"
+                                ], namespaces)
+                            else:
+                                title = self._get_text(item, ["title"], namespaces)
+                                link = self._get_text(item, ["link"], namespaces)
+                                content = self._get_text(item, ["description"], namespaces)
+                                updated = self._get_text(item, ["pubDate"], namespaces)
+
+                            if not title or not link:
                                 continue
-                            if len(title) > self.config.title_max_length:
-                                title = title[:self.config.title_max_length] + "..."
-                            # 链接
-                            link = None
-                            if not is_atom:
-                                for link_path in ["link", ".//link", ".//link/@href"]:
-                                    link_elements = item.xpath(link_path)
-                                    if link_elements:
-                                        link = link_elements[0] if isinstance(link_elements[0], str) else link_elements[0].text
-                                        if link:
-                                            link = link.strip()
-                                            break
-                            else:
-                                link_elements = item.xpath("atom:link/@href", namespaces=nsmap)
-                                if not link_elements:
-                                    link_elements = item.xpath("link/@href")
-                                if link_elements:
-                                    link = link_elements[0].strip()
-                                else:
-                                    link_elements = item.xpath("atom:link", namespaces=nsmap)
-                                    if not link_elements:
-                                        link_elements = item.xpath("link")
-                                    if link_elements and hasattr(link_elements[0], 'text') and link_elements[0].text:
-                                        link = link_elements[0].text.strip()
-                            if not link:
-                                continue
-                            if not re.match(r"^https?://", link):
-                                link = self.get_root_url(url) + link
-                            # 描述
-                            description = None
-                            if not is_atom:
-                                for desc_path in ["description", ".//description", "content", ".//content", "summary", ".//summary"]:
-                                    desc_elements = item.xpath(desc_path)
-                                    if desc_elements and getattr(desc_elements[0], 'text', None):
-                                        description = desc_elements[0].text
-                                        break
-                            else:
-                                for desc_path in ["atom:summary", "atom:content", "summary", "content"]:
-                                    desc_elements = item.xpath(desc_path, namespaces=nsmap) if 'atom' in desc_path else item.xpath(desc_path)
-                                    if desc_elements and (getattr(desc_elements[0], 'text', None) or isinstance(desc_elements[0], str)):
-                                        description = desc_elements[0].text if hasattr(desc_elements[0], 'text') and desc_elements[0].text else str(desc_elements[0])
-                                        break
-                            if not description:
-                                description = "无描述"
-                            pic_urls = self.extract_images(description)
-                            description = self.strip_html(description)
-                            if len(description) > self.config.description_max_length:
-                                description = description[:self.config.description_max_length] + "..."
-                            # 频道标题
-                            chan_title = ""
-                            for chan_title_path in ["//channel/title", "//feed/title", "//atom:title"]:
-                                chan_elements = root.xpath(chan_title_path, namespaces=nsmap) if 'atom' in chan_title_path else root.xpath(chan_title_path)
-                                if chan_elements and getattr(chan_elements[0], 'text', None):
-                                    chan_title = chan_elements[0].text.strip()
-                                    break
-                            # 时间
-                            pub_date = ""
-                            pub_date_timestamp = 0
-                            if not is_atom:
-                                date_paths = ["pubDate", ".//pubDate", "published", ".//published", "updated", ".//updated"]
-                            else:
-                                date_paths = ["atom:updated", "atom:published", "updated", "published"]
-                            for date_path in date_paths:
-                                date_elements = item.xpath(date_path, namespaces=nsmap) if 'atom' in date_path else item.xpath(date_path)
-                                if date_elements and (getattr(date_elements[0], 'text', None) or isinstance(date_elements[0], str)):
-                                    pub_date = date_elements[0].text.strip() if hasattr(date_elements[0], 'text') and date_elements[0].text else str(date_elements[0]).strip()
-                                    try:
-                                        date_formats = [
-                                            "%a, %d %b %Y %H:%M:%S %z",
-                                            "%Y-%m-%dT%H:%M:%S%z",
-                                            "%Y-%m-%dT%H:%M:%SZ",
-                                            "%Y-%m-%d %H:%M:%S"
-                                        ]
-                                        for date_format in date_formats:
-                                            try:
-                                                dt = pub_date
-                                                if "GMT" in dt:
-                                                    dt = dt.replace("GMT", "+0000")
-                                                if "Z" in dt:
-                                                    dt = dt.replace("Z", "+0000")
-                                                pub_date_parsed = time.strptime(dt, date_format)
-                                                pub_date_timestamp = int(time.mktime(pub_date_parsed))
-                                                break
-                                            except ValueError:
-                                                continue
-                                        if pub_date_timestamp == 0:
-                                            pub_date_timestamp = int(time.time())
-                                        break
-                                    except:
-                                        pub_date_timestamp = int(time.time())
-                                    break
+
+                            if not content:
+                                content = "无描述"
+
+                            # 处理日期
+                            pub_date_timestamp = self._parse_date(updated)
+                            
+                            # 提取图片
+                            pic_urls = self.extract_images(content)
+                            
+                            # 清理描述文本
+                            description = self.strip_html(content)
+
                             if pub_date_timestamp > after_timestamp or (pub_date_timestamp == 0 and link != after_link):
                                 rss_items.append(
                                     RSSItem(
@@ -513,22 +699,122 @@ class RSS(commands.Cog):
                                         title=title,
                                         link=link,
                                         description=description,
-                                        pubDate=pub_date,
+                                        pubDate=updated or "",
                                         pubDate_timestamp=pub_date_timestamp,
                                         pic_urls=pic_urls
                                     )
                                 )
+                                
                                 if max_items > 0 and len(rss_items) >= max_items:
                                     break
-                            else:
-                                break
+
                         except Exception as e:
-                            self.logger.error(f"解析RSS/Atom条目失败: {url} - {str(e)}")
+                            self.logger.error(f"解析RSS条目失败: {url} - {str(e)}")
                             continue
+
                     return rss_items
+
         except Exception as e:
             self.logger.error(f"获取RSS内容失败: {url} - {str(e)}\n{traceback.format_exc()}")
             return []
+
+    def _get_feed_title(self, root, namespaces: dict, is_atom: bool) -> str:
+        """获取Feed标题"""
+        if is_atom:
+            for xpath in ["//title", "//atom:title"]:
+                title = self._get_text(root, [xpath], namespaces)
+                if title:
+                    return title
+        else:
+            for xpath in ["//channel/title", "//title"]:
+                title = self._get_text(root, [xpath], namespaces)
+                if title:
+                    return title
+        return "未知频道"
+
+    def _get_github_repo_info(self, root, namespaces: dict) -> Optional[str]:
+        """获取GitHub仓库信息"""
+        try:
+            # 获取仓库名称
+            repo_name = self._get_text(root, ["//title"], namespaces)
+            if repo_name:
+                repo_name = repo_name.replace(" - Atom", "").strip()
+            
+            # 获取仓库描述
+            description = self._get_text(root, ["//subtitle", "//atom:subtitle"], namespaces)
+            
+            if repo_name:
+                if description:
+                    return f"{repo_name} - {description}"
+                return repo_name
+            return None
+        except:
+            return None
+
+    def _get_text(self, element, paths: List[str], namespaces: dict) -> Optional[str]:
+        """获取XML元素的文本内容"""
+        for path in paths:
+            try:
+                elements = element.xpath(path, namespaces=namespaces)
+                if elements and elements[0].text:
+                    return elements[0].text.strip()
+            except:
+                continue
+        return None
+
+    def _get_link(self, element, namespaces: dict) -> Optional[str]:
+        """获取Atom feed中的链接"""
+        # 首先尝试获取link元素的href属性
+        for path in ["default:link/@href", "atom:link/@href", "link/@href"]:
+            try:
+                hrefs = element.xpath(path, namespaces=namespaces)
+                if hrefs:
+                    return hrefs[0].strip()
+            except:
+                continue
+        
+        # 如果没有找到href属性，尝试获取link元素的文本内容
+        for path in ["default:link/text()", "atom:link/text()", "link/text()"]:
+            try:
+                links = element.xpath(path, namespaces=namespaces)
+                if links:
+                    return links[0].strip()
+            except:
+                continue
+        
+        return None
+
+    def _parse_date(self, date_str: Optional[str]) -> int:
+        """解析日期字符串为时间戳"""
+        if not date_str:
+            return 0
+            
+        date_formats = [
+            "%a, %d %b %Y %H:%M:%S %z",  # RSS标准格式
+            "%Y-%m-%dT%H:%M:%S%z",       # ISO 8601
+            "%Y-%m-%dT%H:%M:%SZ",        # ISO 8601 UTC
+            "%Y-%m-%d %H:%M:%S",         # 简单格式
+            "%a, %d %b %Y %H:%M:%S GMT", # 另一种RSS格式
+            "%Y-%m-%dT%H:%M:%S.%f%z",    # 带毫秒的ISO 8601
+            "%Y-%m-%dT%H:%M:%S.%fZ"      # 带毫秒的ISO 8601 UTC
+        ]
+
+        # 预处理日期字符串
+        date_str = date_str.strip()
+        if "GMT" in date_str:
+            date_str = date_str.replace("GMT", "+0000")
+        if date_str.endswith("Z"):
+            date_str = date_str[:-1] + "+0000"
+
+        # 尝试不同的日期格式
+        for date_format in date_formats:
+            try:
+                parsed_time = time.strptime(date_str, date_format)
+                return int(time.mktime(parsed_time))
+            except ValueError:
+                continue
+
+        return int(time.time())
 
     def strip_html(self, html: str) -> str:
         """移除HTML标签"""
@@ -566,11 +852,11 @@ class RSS(commands.Cog):
 
     @rss.command(name="add")
     async def add_feed(self, ctx, url: str, cron: str = "*/5 * * * *"):
-        """添加RSS订阅
-        用法：!rss add <url> [cron表达式]
-        例如：!rss add https://rsshub.app/cngal/weekly
-        """
+        """添加RSS订阅"""
         try:
+            # 规范化URL
+            url = self._normalize_url(url)
+            
             # 测试RSS源是否可用
             feed_info = await self.parse_rss_feed(url)
             if not feed_info:
@@ -582,36 +868,67 @@ class RSS(commands.Cog):
 
             title, description = feed_info
             if self.rss_manager.add_feed(url, ctx.channel.id, cron):
+                # 创建成功提示
                 embed = EmbedBuilder.success(
                     title="RSS订阅添加成功",
-                    description=f"**频道:** {title}\n**描述:** {description}\n**检查间隔:** {cron}"
+                    description=f"**{title}**\n{description}"
                 )
-                # 添加测试获取
+                
+                # 添加订阅设置
+                cron_desc = self._format_cron(cron)
+                embed.add_field(
+                    name="订阅设置",
+                    value=f"**检查间隔:** {cron_desc}\n**URL:** {url}",
+                    inline=False
+                )
+                
+                # 尝试获取最新文章
                 try:
                     items = await self.fetch_rss_items(url, num=1)
                     if items:
+                        item = items[0]
                         embed.add_field(
                             name="最新文章",
-                            value=f"**{items[0].title}**\n{items[0].description[:100]}...",
+                            value=f"**[{item.title}]({item.link})**\n{item.description[:100]}...",
                             inline=False
                         )
                 except Exception as e:
-                    embed.add_field(
-                        name="警告",
-                        value=f"获取最新文章失败: {str(e)}",
-                        inline=False
-                    )
+                    self.logger.error(f"获取最新文章失败: {url} - {str(e)}")
+                
                 await ctx.send(embed=embed)
             else:
                 await ctx.send(embed=EmbedBuilder.warning(
                     title="添加失败",
                     description="该RSS源已经订阅"
                 ))
+        except RSSNetworkError as e:
+            await ctx.send(embed=EmbedBuilder.error(
+                title="添加失败",
+                description=f"网络错误: {str(e)}\n如果是SSL错误，请尝试使用 `!rss config set verify_ssl false` 关闭SSL验证"
+            ))
+        except RSSParseError as e:
+            await ctx.send(embed=EmbedBuilder.error(
+                title="添加失败",
+                description=f"解析错误: {str(e)}"
+                ))
         except Exception as e:
             await ctx.send(embed=EmbedBuilder.error(
                 title="添加失败",
-                description=f"发生错误: {str(e)}"
+                description=f"发生错误: {str(e)}\n{traceback.format_exc()}"
             ))
+
+    def _format_cron(self, cron: str) -> str:
+        """格式化cron表达式为友好显示"""
+        parts = cron.split()
+        if len(parts) == 5 and parts[0].startswith("*/"):
+            try:
+                minutes = int(parts[0][2:])
+                if minutes == 1:
+                    return "每分钟"
+                return f"每{minutes}分钟"
+            except:
+                pass
+        return cron
 
     @rss.command(name="remove")
     async def remove_feed(self, ctx, url: str):
@@ -694,12 +1011,18 @@ class RSS(commands.Cog):
             return
 
         try:
-            items = await self.fetch_rss_items(url, num=3)
             feed_info = await self.parse_rss_feed(url)
-            
+            if not feed_info:
+                await ctx.send(embed=EmbedBuilder.error(
+                    title="获取失败",
+                    description="无法获取RSS源信息"
+                ))
+                return
+
+            title, description = feed_info
             embed = EmbedBuilder.info(
-                title=feed_info[0] if feed_info else "RSS订阅信息",
-                description=feed_info[1] if feed_info else "无描述"
+                title=title,
+                description=description
             )
             
             # 添加基本信息
@@ -714,15 +1037,23 @@ class RSS(commands.Cog):
                 inline=False
             )
             
-            # 添加最新文章（带链接）
-            if items:
-                latest_items = "\n\n".join(
-                    f"**[{item.title}]({item.link})**\n{item.description[:100]}..." 
-                    for item in items
-                )
+            # 尝试获取最新文章
+            try:
+                items = await self.fetch_rss_items(url, num=3)
+                if items:
+                    latest_items = "\n\n".join(
+                        f"**[{item.title}]({item.link})**\n{item.description[:100]}..." 
+                        for item in items
+                    )
+                    embed.add_field(
+                        name="最新文章",
+                        value=latest_items,
+                        inline=False
+                    )
+            except Exception as e:
                 embed.add_field(
-                    name="最新文章",
-                    value=latest_items,
+                    name="警告",
+                    value=f"获取最新文章失败: {str(e)}",
                     inline=False
                 )
             
@@ -739,16 +1070,17 @@ class RSS(commands.Cog):
         except Exception as e:
             await ctx.send(embed=EmbedBuilder.error(
                 title="获取失败",
-                description=f"获取RSS信息时发生错误: {str(e)}"
+                description=f"获取RSS信息时发生错误: {str(e)}\n{traceback.format_exc()}"
             ))
 
     @rss.command(name="test")
     async def test_feed(self, ctx, url: str):
-        """测试RSS订阅源
-        用法：!rss test <url>
-        例如：!rss test https://rsshub.app/cngal/weekly
-        """
+        """测试RSS订阅源"""
         try:
+            # 规范化URL
+            url = self._normalize_url(url)
+            
+            # 测试RSS源
             feed_info = await self.parse_rss_feed(url)
             if not feed_info:
                 await ctx.send(embed=EmbedBuilder.error(
@@ -758,38 +1090,45 @@ class RSS(commands.Cog):
                 return
 
             title, description = feed_info
-            items = await self.fetch_rss_items(url, num=3)
             
+            # 创建测试结果嵌入消息
             embed = EmbedBuilder.success(
                 title="RSS源测试成功",
-                description=f"**频道:** {title}\n**描述:** {description}"
+                description=f"**{title}**\n{description}"
             )
             
-            if items:
-                latest_items = "\n\n".join(
-                    f"**[{item.title}]({item.link})**\n{item.description[:100]}..." 
-                    for item in items
-                )
+            # 获取最新文章
+            try:
+                items = await self.fetch_rss_items(url, num=3)
+                if items:
+                    latest_items = []
+                    for i, item in enumerate(items, 1):
+                        latest_items.append(
+                            f"**{i}. [{item.title}]({item.link})**\n"
+                            f"{item.description[:100]}..."
+                        )
+                    
+                    embed.add_field(
+                        name="最新文章",
+                        value="\n\n".join(latest_items),
+                        inline=False
+                    )
+            except Exception as e:
                 embed.add_field(
-                    name="最新文章",
-                    value=latest_items,
+                    name="警告",
+                    value=f"获取最新文章失败: {self._format_error(e)}",
                     inline=False
                 )
             
             await ctx.send(embed=embed)
             
         except Exception as e:
-            await ctx.send(embed=EmbedBuilder.error(
-                title="测试失败",
-                description=f"测试RSS源时发生错误: {str(e)}\n{traceback.format_exc()}"
-            ))
+            await self._handle_feed_error(ctx, url, e)
 
     @rss.group(name="config")
     @commands.has_permissions(administrator=True)
     async def rss_config(self, ctx):
-        """RSS配置管理（需要管理员权限）
-        用法：!rss config
-        """
+        """RSS配置管理（需要管理员权限）"""
         if ctx.invoked_subcommand is None:
             current_config = {
                 "检查间隔": f"{self.config.check_interval} 分钟",
@@ -797,6 +1136,7 @@ class RSS(commands.Cog):
                 "描述最大长度": f"{self.config.description_max_length} 字符",
                 "单次获取最大条目数": str(self.config.max_items_per_poll),
                 "隐藏链接": str(self.config.is_hide_url),
+                "SSL验证": str(self.ssl_context.verify_mode == ssl.CERT_REQUIRED),
                 "图片设置": (
                     f"读取图片: {self.config.pic_config['is_read_pic']}\n"
                     f"防和谐处理: {self.config.pic_config['is_adjust_pic']}\n"
@@ -813,13 +1153,17 @@ class RSS(commands.Cog):
 
     @rss_config.command(name="set")
     async def set_config(self, ctx, key: str, value: str):
-        """设置RSS配置项
-        用法：!rss config set <配置项> <值>
-        例如：!rss config set check_interval 10
-        """
+        """设置RSS配置项"""
         key = key.lower()
         try:
-            if key == "check_interval":
+            if key == "verify_ssl":
+                val = value.lower() in ["true", "1", "yes", "y"]
+                self.ssl_context.verify_mode = ssl.CERT_REQUIRED if val else ssl.CERT_NONE
+                await ctx.send(embed=EmbedBuilder.success(
+                    title="更新成功",
+                    description=f"SSL验证已{'开启' if val else '关闭'}"
+                ))
+            elif key == "check_interval":
                 interval = int(value)
                 if interval < 1:
                     raise ValueError("检查间隔必须大于0")
@@ -878,7 +1222,8 @@ class RSS(commands.Cog):
                     title="无效的配置项",
                     description=(
                         "可用的配置项：\n"
-                        "- check_interval\n"
+                        "- verify_ssl (true/false)\n"
+                        "- check_interval (分钟)\n"
                         "- title_max_length\n"
                         "- description_max_length\n"
                         "- max_items_per_poll\n"
@@ -898,6 +1243,37 @@ class RSS(commands.Cog):
                 title="配置更新失败",
                 description=f"发生错误: {str(e)}"
             ))
+
+    async def _create_info_embed(self, feed_info: tuple[str, str], url: str) -> discord.Embed:
+        """创建RSS信息的Embed
+        
+        Args:
+            feed_info: (标题, 描述)的元组
+            url: RSS源URL
+        """
+        title, description = feed_info
+        embed = EmbedBuilder.info(
+            title="RSS源信息",
+            description=f"**频道:** {title}\n**描述:** {description}"
+        )
+        
+        # 尝试获取最新文章
+        try:
+            items = await self.fetch_rss_items(url, num=1)
+            if items:
+                embed.add_field(
+                    name="最新文章",
+                    value=f"**{items[0].title}**\n{items[0].description[:100]}...",
+                    inline=False
+                )
+        except Exception as e:
+            embed.add_field(
+                name="警告",
+                value=f"获取最新文章失败: {str(e)}",
+                inline=False
+            )
+        
+        return embed
 
 async def setup(bot):
     """加载插件时调用的初始化函数"""
