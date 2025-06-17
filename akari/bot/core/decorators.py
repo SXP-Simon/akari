@@ -131,4 +131,11 @@ def group(
     Returns:
         Callable: 装饰器。
     """
-    # ... existing code ... 
+    return CommandRegistry.register_group(
+        name=name,
+        description=description,
+        aliases=aliases,
+        usage=usage,
+        cooldown=cooldown,
+        permissions=permissions
+    )
