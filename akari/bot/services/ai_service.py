@@ -59,7 +59,7 @@ class AIService(BaseService):
         if not settings.google_ai_key:
             raise ValueError("Google AI API Key not configured")
         genai.configure(api_key=settings.google_ai_key)
-        self.ai_model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        self.ai_model = genai.GenerativeModel(model_name=self._config.model)
         
     @classmethod
     def get_default_config(cls) -> AIServiceConfig:
