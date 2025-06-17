@@ -4,7 +4,7 @@ import os
 import time
 import discord
 from discord.ext import commands
-from akari.bot.utils import EmbedBuilder
+from akari.bot.utils.embeds import EmbedBuilder, EmbedData
 
 # 数据存储目录
 PLUGIN_DIR = os.path.join('data', 'openweaponscase')
@@ -54,6 +54,22 @@ def ensure_data_dir():
     """确保数据目录存在"""
     os.makedirs(PLUGIN_DIR, exist_ok=True)
 
+# =====================
+# akari.plugins.openweaponscase_plugin
+# =====================
+
+"""
+CSGOWeaponCasePlugin: CS:GO 武器箱开箱插件
+
+- 支持武器箱模拟开箱、概率分布、库存管理
+- Discord 命令集成
+- 数据持久化与历史记录
+
+Attributes:
+    bot (commands.Bot): 关联的 Bot 实例
+    ...
+"""
+
 class CSGOWeaponCasePlugin(commands.Cog):
     """CS:GO武器箱开箱插件"""
     
@@ -63,7 +79,7 @@ class CSGOWeaponCasePlugin(commands.Cog):
         self.open_history = self._load_history()
         self.max_display_count = 10  # 超过此数量时使用统计模式显示
     
-    @commands.group(name="开箱", description="CS:GO武器箱开箱模拟器", invoke_without_command=True)
+    @commands.hybrid_group(name="开箱", description="CS:GO武器箱开箱模拟器", invoke_without_command=True)
     async def cscase(self, ctx):
         """CS:GO武器箱开箱命令"""
         commands_dict = {
@@ -73,11 +89,11 @@ class CSGOWeaponCasePlugin(commands.Cog):
             "purge": "清空库存数据"
         }
         
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title="🔫 CS:GO开箱系统",
             description="欢迎使用CS:GO武器箱开箱模拟器！",
-            color_key="special"
-        )
+            color=EmbedBuilder.THEME.special
+        ))
         
         # 添加命令说明
         for cmd, desc in commands_dict.items():
@@ -365,11 +381,11 @@ class CSGOWeaponCasePlugin(commands.Cog):
 
     async def _display_all_items(self, ctx, case_name, count, nickname, items):
         """显示所有物品详情"""
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title=f"⚡ 开箱结果",
             description=f"{nickname} 开启了 {count} 个【{case_name}】",
-            color_key="special"
-        )
+            color=EmbedBuilder.THEME.special
+        ))
         
         # 设置用户头像
         embed.set_author(
@@ -404,11 +420,11 @@ class CSGOWeaponCasePlugin(commands.Cog):
 
     async def _display_summary(self, ctx, case_name, count, nickname, quality_stats, rare_items):
         """显示开箱统计摘要"""
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title=f"⚡ 开箱统计",
             description=f"{nickname} 开启了 {count} 个【{case_name}】",
-            color_key="special"
-        )
+            color=EmbedBuilder.THEME.special
+        ))
         
         # 设置用户头像
         embed.set_author(
@@ -455,15 +471,19 @@ class CSGOWeaponCasePlugin(commands.Cog):
         inventory = self.open_history.get(user_id, {})
         
         if not inventory.get("total"):
-            embed = EmbedBuilder.warning("库存为空", "你的库存中还没有任何物品")
+            embed = EmbedBuilder.create(EmbedData(
+                title="库存为空",
+                description="你的库存中还没有任何物品",
+                color=EmbedBuilder.THEME.warning
+            ))
             await ctx.reply(embed=embed)
             return
         
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title=f"🧰 武器库存",
             description=f"{ctx.author.display_name} 的收藏品",
-            color_key="info"
-        )
+            color=EmbedBuilder.THEME.info
+        ))
         
         # 添加用户头像
         embed.set_author(
@@ -530,22 +550,30 @@ class CSGOWeaponCasePlugin(commands.Cog):
         if user_id in self.open_history:
             del self.open_history[user_id]
             self._save_history()
-            embed = EmbedBuilder.success("库存已清空", "您的所有物品已被清除")
+            embed = EmbedBuilder.create(EmbedData(
+                title="库存已清空",
+                description="您的所有物品已被清除",
+                color=EmbedBuilder.THEME.success
+            ))
             await ctx.reply(embed=embed)
         else:
-            embed = EmbedBuilder.warning("无库存", "没有找到可清除的库存数据")
+            embed = EmbedBuilder.create(EmbedData(
+                title="无库存",
+                description="没有找到可清除的库存数据",
+                color=EmbedBuilder.THEME.warning
+            ))
             await ctx.reply(embed=embed)
 
     async def show_menu(self, ctx):
         """显示帮助菜单"""
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title="🔫 CS:GO开箱系统",
             description=(
                 "欢迎使用CS:GO武器箱模拟器！以下是可用的命令和武器箱列表\n"
                 "▬▬▬▬▬▬▬▬▬▬▬▬▬"
             ),
-            color_key="warning"
-        )
+            color=EmbedBuilder.THEME.warning
+        ))
         
         # 添加使用方法字段
         usage_text = (
@@ -578,6 +606,6 @@ class CSGOWeaponCasePlugin(commands.Cog):
         await ctx.reply(embed=embed)
 
 async def setup(bot):
-    """初始化函数"""
+    """插件加载入口"""
     ensure_data_dir()
     await bot.add_cog(CSGOWeaponCasePlugin(bot))

@@ -7,8 +7,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Set
 import discord
 from discord.ext import commands, tasks
-from akari.bot.commands import command
-from akari.bot.utils import EmbedBuilder
+from akari.bot.utils.embeds import EmbedBuilder, EmbedData
 
 # 数据存储目录
 DATA_DIR = os.path.join("data", "baoyan")
@@ -31,6 +30,23 @@ def setup(bot):
     plugin = BaoyanPlugin(bot)
     bot.add_cog(plugin)
 
+# =====================
+# akari.plugins.baoyan_plugin
+# =====================
+
+"""
+BaoyanPlugin: 计算机保研信息插件
+
+- 支持保研项目信息查询、搜索、标签筛选
+- 自动/手动数据更新与通知
+- 本地与远程数据源管理
+- Discord 命令集成
+
+Attributes:
+    bot (commands.Bot): 关联的 Bot 实例
+    ...
+"""
+
 class BaoyanPlugin(commands.Cog):
     """计算机保研信息插件"""
     def __init__(self, bot):
@@ -44,52 +60,66 @@ class BaoyanPlugin(commands.Cog):
         self.load_known_programs()
         self.update_task = None
         self.notification_task = None
+        self.start_tasks()
 
     @commands.group(name="baoyan", description="计算机保研信息查询（输入 !baoyan help 查看详细用法）", invoke_without_command=True)
     async def baoyan(self, ctx):
-        if ctx.invoked_subcommand is None:
-            embed = EmbedBuilder.menu(
-                title="计算机保研信息查询命令",
-                description="输入 !baoyan help 查看详细用法",
-                commands={
-                    "!baoyan list": "列出保研项目，可选标签",
-                    "!baoyan search <关键词>": "搜索项目，支持模糊匹配",
-                    "!baoyan upcoming": "列出30天内即将截止的项目",
-                    "!baoyan detail <名称>": "查看项目详细信息",
-                    "!baoyan tags": "查看所有可用标签",
-                    "!baoyan sources": "查看所有数据源",
-                    "!baoyan update": "更新保研数据（需管理员）"
-                }
-            )
-            await ctx.reply(embed=embed)
+        """保研命令组"""
+        embed = EmbedBuilder.create(EmbedData(
+            title="计算机保研信息查询命令",
+            description="输入 !baoyan help 查看详细用法",
+            color=EmbedBuilder.THEME.special
+        ))
+        
+        commands_dict = {
+            "!baoyan list": "列出保研项目，可选标签",
+            "!baoyan search <关键词>": "搜索项目，支持模糊匹配",
+            "!baoyan upcoming": "列出30天内即将截止的项目",
+            "!baoyan detail <名称>": "查看项目详细信息",
+            "!baoyan tags": "查看所有可用标签",
+            "!baoyan sources": "查看所有数据源",
+            "!baoyan update": "更新保研数据（需管理员）"
+        }
+        
+        for cmd, desc in commands_dict.items():
+            embed.add_field(name=cmd, value=desc, inline=True)
+        
+        await ctx.reply(embed=embed)
 
-    @baoyan.command(name="list", description="列出保研项目（可选标签筛选，多个标签用逗号分隔）\n示例：!baoyan list 软件工程,人工智能")
-    async def list_programs(self, ctx, tag: str = None):
+    @baoyan.command(name="list", description="列出保研项目（可选标签筛选，多个标签用逗号分隔）")
+    async def list_programs_cmd(self, ctx, tag: str = None):
+        """列出保研项目（可选标签筛选）"""
         await self.list_programs(ctx, tag)
 
-    @baoyan.command(name="search", description="搜索保研项目（关键词支持模糊匹配）\n示例：!baoyan search 清华")
-    async def search_programs(self, ctx, *, keyword: str):
+    @baoyan.command(name="search", description="搜索保研项目（关键词支持模糊匹配）")
+    async def search_programs_cmd(self, ctx, *, keyword: str):
+        """搜索保研项目（关键词支持模糊匹配）"""
         await self.search_programs(ctx, keyword)
 
-    @baoyan.command(name="upcoming", description="查看30天内即将截止的项目（可选标签筛选）\n示例：!baoyan upcoming 软件工程")
-    async def list_upcoming(self, ctx, tag: str = None):
+    @baoyan.command(name="upcoming", description="查看30天内即将截止的项目（可选标签筛选）")
+    async def list_upcoming_cmd(self, ctx, tag: str = None):
+        """查看30天内即将截止的项目（可选标签筛选）"""
         await self.list_upcoming(ctx, tag)
 
-    @baoyan.command(name="detail", description="查看项目详情（支持关键词）\n示例：!baoyan detail 北京大学")
-    async def program_detail(self, ctx, *, name: str):
+    @baoyan.command(name="detail", description="查看项目详情（支持关键词）")
+    async def program_detail_cmd(self, ctx, *, name: str):
+        """查看项目详情（支持关键词）"""
         await self.program_detail(ctx, name)
 
-    @baoyan.command(name="tags", description="查看所有可用标签\n示例：!baoyan tags")
-    async def list_tags(self, ctx):
+    @baoyan.command(name="tags", description="查看所有可用标签")
+    async def list_tags_cmd(self, ctx):
+        """查看所有可用标签"""
         await self.list_tags(ctx)
 
-    @baoyan.command(name="sources", description="查看所有数据源\n示例：!baoyan sources")
-    async def list_sources(self, ctx):
+    @baoyan.command(name="sources", description="查看所有数据源")
+    async def list_sources_cmd(self, ctx):
+        """查看所有数据源"""
         await self.list_sources(ctx)
 
-    @baoyan.command(name="update", description="更新保研数据（需管理员权限）\n示例：!baoyan update")
+    @baoyan.command(name="update", description="更新保研数据（需管理员权限）")
     @commands.has_permissions(administrator=True)
-    async def manual_update(self, ctx):
+    async def manual_update_cmd(self, ctx):
+        """更新保研数据（需管理员权限）"""
         await self.manual_update(ctx)
 
     def start_tasks(self):
@@ -285,11 +315,11 @@ class BaoyanPlugin(commands.Cog):
             )
             await ctx.reply(embed=embed)
             return
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title="保研项目列表",
             description=f"数据源: {source}" + (f"\n标签筛选: {tag}" if tag else ""),
-            color_key="primary"
-        )
+            color=EmbedBuilder.THEME.primary
+        ))
         display_limit = MAX_DISPLAY_ITEMS
         for i, program in enumerate(programs[:display_limit], 1):
             name = f"{i}. {program.get('name', '')} - {program.get('institute', '')}"
@@ -338,11 +368,11 @@ class BaoyanPlugin(commands.Cog):
             )
             await ctx.reply(embed=embed)
             return
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title=f"搜索结果: '{keyword}'",
             description=f"数据源: {source}\n找到 {len(matching_programs)} 个匹配项目",
-            color_key="primary"
-        )
+            color=EmbedBuilder.THEME.primary
+        ))
         display_limit = MAX_DISPLAY_ITEMS
         for i, program in enumerate(matching_programs[:display_limit], 1):
             name = f"{i}. {program.get('name', '')} - {program.get('institute', '')}"
@@ -401,11 +431,11 @@ class BaoyanPlugin(commands.Cog):
             )
             await ctx.reply(embed=embed)
             return
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title=f"{days}天内即将截止的项目",
             description=f"数据源: {source}" + (f"\n标签筛选: {tag}" if tag else ""),
-            color_key="danger"
-        )
+            color=EmbedBuilder.THEME.danger
+        ))
         display_limit = MAX_DISPLAY_ITEMS
         for i, program in enumerate(upcoming_programs[:display_limit], 1):
             name = f"{i}. {program.get('name', '')} - {program.get('institute', '')}"
@@ -492,11 +522,11 @@ class BaoyanPlugin(commands.Cog):
             )
             await ctx.reply(embed=embed)
             return
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title=f"数据源 '{source}' 中的所有标签",
             description="使用这些标签可以筛选保研项目",
-            color_key="info"
-        )
+            color=EmbedBuilder.THEME.info
+        ))
         tag_list = sorted(all_tags)
         groups = [tag_list[i:i+20] for i in range(0, len(tag_list), 20)]
         for i, group in enumerate(groups, 1):
@@ -510,11 +540,11 @@ class BaoyanPlugin(commands.Cog):
             )
             await ctx.reply(embed=embed)
             return
-        embed = EmbedBuilder.create(
+        embed = EmbedBuilder.create(EmbedData(
             title="可用的数据源",
             description=f"当前默认数据源: {self.default_source}",
-            color_key="success"
-        )
+            color=EmbedBuilder.THEME.success
+        ))
         for source, programs in self.data_sources.items():
             embed.add_field(
                 name=source, 
@@ -539,7 +569,109 @@ class BaoyanPlugin(commands.Cog):
                 title="更新失败",
                 description="保研信息数据更新失败，请稍后再试或检查网络连接。"
             )
-        await ctx.reply(embed=embed) 
+        await ctx.reply(embed=embed)
+
+    async def show_project_list(self, ctx, projects, title, description=None):
+        """显示项目列表"""
+        embed = EmbedBuilder.create(EmbedData(
+            title=title,
+            description=description or "以下是符合条件的项目：",
+            color=EmbedBuilder.THEME.info
+        ))
+        
+        # 添加项目信息
+        for project in projects:
+            field_name = f"{project['school']} - {project['college']}"
+            field_value = f"专业：{project['major']}\n"
+            
+            if project.get('direction'):
+                field_value += f"方向：{project['direction']}\n"
+                
+            if project.get('quota'):
+                field_value += f"名额：{project['quota']}\n"
+                
+            if project.get('requirements'):
+                field_value += f"要求：{project['requirements']}\n"
+                
+            if project.get('deadline'):
+                field_value += f"截止：{project['deadline']}\n"
+                
+            if project.get('url'):
+                field_value += f"[详情链接]({project['url']})"
+                
+            embed.add_field(
+                name=field_name,
+                value=field_value,
+                inline=False
+            )
+            
+        await ctx.reply(embed=embed)
+
+    async def show_school_list(self, ctx, schools):
+        """显示学校列表"""
+        embed = EmbedBuilder.create(EmbedData(
+            title="学校列表",
+            description="以下是所有收录的学校：",
+            color=EmbedBuilder.THEME.info
+        ))
+        
+        # 将学校按每行5个分组显示
+        school_groups = [schools[i:i+5] for i in range(0, len(schools), 5)]
+        for group in school_groups:
+            embed.add_field(
+                name="\u200b",  # 空字符
+                value=" | ".join(group),
+                inline=False
+            )
+            
+        await ctx.reply(embed=embed)
+
+    async def show_college_list(self, ctx, school, colleges):
+        """显示学院列表"""
+        embed = EmbedBuilder.create(EmbedData(
+            title=f"{school} - 学院列表",
+            description="以下是该学校收录的学院：",
+            color=EmbedBuilder.THEME.info
+        ))
+        
+        # 将学院按每行3个分组显示
+        college_groups = [colleges[i:i+3] for i in range(0, len(colleges), 3)]
+        for group in college_groups:
+            embed.add_field(
+                name="\u200b",  # 空字符
+                value=" | ".join(group),
+                inline=False
+            )
+            
+        await ctx.reply(embed=embed)
+
+    async def show_major_list(self, ctx, school, college, majors):
+        """显示专业列表"""
+        embed = EmbedBuilder.create(EmbedData(
+            title=f"{school} - {college} - 专业列表",
+            description="以下是该学院收录的专业：",
+            color=EmbedBuilder.THEME.info
+        ))
+        
+        # 将专业按每行2个分组显示
+        major_groups = [majors[i:i+2] for i in range(0, len(majors), 2)]
+        for group in major_groups:
+            embed.add_field(
+                name="\u200b",  # 空字符
+                value=" | ".join(group),
+                inline=False
+            )
+            
+        await ctx.reply(embed=embed)
+
+    async def show_error(self, ctx, message):
+        """显示错误信息"""
+        embed = EmbedBuilder.create(EmbedData(
+            title="❌ 错误",
+            description=message,
+            color=EmbedBuilder.THEME.error
+        ))
+        await ctx.reply(embed=embed)
 
 async def setup(bot):
     """初始化函数"""

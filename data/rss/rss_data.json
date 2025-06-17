@@ -11,18 +11,5 @@
       }
     },
     "info": {}
-  },
-  "https://rsshub.rssforever.com/cnblogs/aggsite/topdiggs": {
-    "subscribers": {
-      "1375802908792066048": {
-        "cron_expr": "*/5 * * * *",
-        "last_update": 1749143723,
-        "latest_link": "",
-        "error_count": 0,
-        "last_error": null,
-        "last_success": 1749143723
-      }
-    },
-    "info": {}
   }
 }
