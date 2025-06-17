@@ -91,6 +91,7 @@ class CommandData(BaseModel):
         usage (Optional[str]): 用法说明。
         cooldown (Optional[int]): 冷却时间（秒）。
         permissions (List[str]): 权限要求。
+        is_group (bool): 是否为命令组。
     """
     name: str
     description: str
@@ -98,6 +99,7 @@ class CommandData(BaseModel):
     usage: Optional[str] = None
     cooldown: Optional[int] = None
     permissions: List[str] = Field(default_factory=list)
+    is_group: bool = False
     
     class Config:
         allow_mutation = False 

@@ -51,6 +51,47 @@ class CommandRegistry:
         return decorator
 
     @classmethod
+    def register_group(
+        cls,
+        name: str,
+        description: str,
+        aliases: List[str] = None,
+        usage: Optional[str] = None,
+        cooldown: Optional[int] = None,
+        permissions: List[str] = None
+    ) -> Callable:
+        """
+        注册命令组。
+        Args:
+            name (str): 命令组名称。
+            description (str): 命令组描述。
+            aliases (List[str]): 命令组别名。
+            usage (Optional[str]): 用法说明。
+            cooldown (Optional[int]): 冷却时间（秒）。
+            permissions (List[str]): 权限要求。
+        Returns:
+            Callable: 装饰器。
+        """
+        def decorator(func: Callable) -> Callable:
+            cmd_data = CommandData(
+                name=name,
+                description=description,
+                aliases=aliases or [],
+                usage=usage,
+                cooldown=cooldown,
+                permissions=permissions or [],
+                is_group=True
+            )
+            
+            @wraps(func)
+            async def wrapper(ctx: CommandContext, *args: Any, **kwargs: Any) -> Any:
+                return await func(ctx, *args, **kwargs)
+            
+            cls._commands[name] = (wrapper, cmd_data)
+            return wrapper
+        return decorator
+
+    @classmethod
     def get_command(cls, name: str) -> Optional[tuple[Callable, CommandData]]:
         """
         获取命令。
