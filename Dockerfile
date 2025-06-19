@@ -84,13 +84,38 @@ RUN if [ "$INCLUDE_MEME" = "true" ]; then \
 RUN useradd --create-home --shell /bin/bash akari
 
 # 仅在包含 meme 功能时，写入 meme-generator 默认配置文件
-RUN if [ "$INCLUDE_MEME" = "true" ]; then \
-    mkdir -p /home/akari/.config/meme_generator && \
-    sh -c 'cat > /home/akari/.config/meme_generator/config.toml <<EOF\n[meme]\nload_builtin_memes = true  # 是否加载内置表情包\nmeme_dirs = []\nmeme_disabled_list = []\n\n[resource]\nresource_urls = [\n  "https://raw.githubusercontent.com/MemeCrafters/meme-generator/",\n  "https://mirror.ghproxy.com/https://raw.githubusercontent.com/MemeCrafters/meme-generator/",\n  "https://cdn.jsdelivr.net/gh/MemeCrafters/meme-generator@",\n  "https://fastly.jsdelivr.net/gh/MemeCrafters/meme-generator@",\n  "https://raw.gitmirror.com/MemeCrafters/meme-generator/"\n]\n\n[gif]\ngif_max_size = 10.0\ngif_max_frames = 100\n\n[translate]\nbaidu_trans_appid = "'"$BAIDU_TRANS_APPID"'"  # 可通过构建参数或环境变量传入\nbaidu_trans_apikey = "'"$BAIDU_TRANS_APIKEY"'"  # 可通过构建参数或环境变量传入\n\n[server]\nhost = "127.0.0.1"\nport = 2233\n\n[log]\nlog_level = "INFO"\nEOF' && \
-    chown -R akari:akari /home/akari/.config; \
-fi
+RUN [ "$INCLUDE_MEME" = "true" ] && mkdir -p /home/akari/.config/meme_generator && cat > /home/akari/.config/meme_generator/config.toml <<EOF
+[meme]
+load_builtin_memes = true  # 是否加载内置表情包
+meme_dirs = []
+meme_disabled_list = []
 
-# 切换到非 root 用户
+[resource]
+resource_urls = [
+  "https://raw.githubusercontent.com/MemeCrafters/meme-generator/",
+  "https://mirror.ghproxy.com/https://raw.githubusercontent.com/MemeCrafters/meme-generator/",
+  "https://cdn.jsdelivr.net/gh/MemeCrafters/meme-generator@",
+  "https://fastly.jsdelivr.net/gh/MemeCrafters/meme-generator@",
+  "https://raw.gitmirror.com/MemeCrafters/meme-generator/"
+]
+
+[gif]
+gif_max_size = 10.0
+gif_max_frames = 100
+
+[translate]
+baidu_trans_appid = "${BAIDU_TRANS_APPID}"  # 可通过构建参数或环境变量传入
+baidu_trans_apikey = "${BAIDU_TRANS_APIKEY}"  # 可通过构建参数或环境变量传入
+
+[server]
+host = "127.0.0.1"
+port = 2233
+
+[log]
+log_level = "INFO"
+EOF
+RUN [ "$INCLUDE_MEME" = "true" ] && chown -R akari:akari /home/akari/.config
+RUN chown -R akari:akari /app
 USER akari
 
 # 下载 meme 生成器图片资源（仅当包含 meme 功能时，akari 用户身份）
