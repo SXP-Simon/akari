@@ -18,6 +18,9 @@ pip install uv
 git clone <仓库地址>
 cd akari
 # 建议不需要体验meme生成的删除meme相关的plugin后进行安装
+uv venv
+source .venv/bin/activate # linux
+.venv/Scripts/activate # win
 uv pip install -e .
 ```
 
@@ -175,7 +178,7 @@ source .venv/bin/activate # linux
 .venv/Scripts/activate # win
 meme download
 ```
-遇到字体问题请到![/MemeCrafters/meme-generator](https://github.com/MemeCrafters/meme-generator)的Issue部分查找解决办法。
+遇到字体问题请到[meme-generator](https://github.com/MemeCrafters/meme-generator)的Issue部分查找解决办法。
 
 ### cs开箱模拟插件
 正常安装机器人框架即可使用
