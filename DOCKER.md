@@ -34,7 +34,10 @@ docker run -d \
 
 ```bash
 # 构建镜像（包含 meme 功能）
-docker build --build-arg INCLUDE_MEME=true -t akari-bot .
+# 如需百度翻译功能，可传递 BAIDU_TRANS_APPID 和 BAIDU_TRANS_APIKEY
+# 可在 百度翻译开放平台 (http://api.fanyi.baidu.com) 申请
+docker build --build-arg INCLUDE_MEME=true --build-arg BAIDU_TRANS_APPID=你的appid --build-arg BAIDU_TRANS_APIKEY=你的apikey -t akari-bot .
+
 
 # 运行容器
 docker run -d \
@@ -46,6 +49,8 @@ docker run -d \
   -v $(pwd)/logs:/app/logs \
   akari-bot
 ```
+
+> 如需百度翻译相关表情包功能，请务必传递 `BAIDU_TRANS_APPID` 和 `BAIDU_TRANS_APIKEY`，否则相关功能不可用。
 
 ## 日志查看
 
