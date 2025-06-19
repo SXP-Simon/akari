@@ -23,7 +23,16 @@ uv.lock
 *.log
 
 # Data
-data/baoyan/*
+/data/baoyan/*
+!/data/baoyan/.gitkeep
+!/data/baoyan/README.md
+/data/meme/*
+!/data/meme/.gitkeep
+!/data/meme/README.md
+/data/rss/*
+!/data/rss/.gitkeep
+!/data/rss/README.md
+!/data/rss/config.json
 
 # Docker
 .dockerignore

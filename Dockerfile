@@ -3,6 +3,10 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 # 构建参数
 ARG INCLUDE_MEME=false
+ARG BAIDU_TRANS_APPID=""
+ARG BAIDU_TRANS_APIKEY=""
+ENV BAIDU_TRANS_APPID=${BAIDU_TRANS_APPID}
+ENV BAIDU_TRANS_APIKEY=${BAIDU_TRANS_APIKEY}
 
 # 设置工作目录
 WORKDIR /app
@@ -76,15 +80,48 @@ RUN if [ "$INCLUDE_MEME" = "true" ]; then \
         fc-cache -fv; \
     fi
 
-# 下载 meme 生成器图片资源（仅当包含 meme 功能时）
-RUN if [ "$INCLUDE_MEME" = "true" ]; then \
-        uv run meme download; \
-    fi
-
 # 创建非 root 用户
-RUN useradd --create-home --shell /bin/bash akari && \
-    chown -R akari:akari /app
+RUN useradd --create-home --shell /bin/bash akari
+
+# 仅在包含 meme 功能时，写入 meme-generator 默认配置文件
+RUN [ "$INCLUDE_MEME" = "true" ] && mkdir -p /home/akari/.config/meme_generator && cat > /home/akari/.config/meme_generator/config.toml <<EOF
+[meme]
+load_builtin_memes = true  # 是否加载内置表情包
+meme_dirs = []
+meme_disabled_list = []
+
+[resource]
+resource_urls = [
+  "https://raw.githubusercontent.com/MemeCrafters/meme-generator/",
+  "https://mirror.ghproxy.com/https://raw.githubusercontent.com/MemeCrafters/meme-generator/",
+  "https://cdn.jsdelivr.net/gh/MemeCrafters/meme-generator@",
+  "https://fastly.jsdelivr.net/gh/MemeCrafters/meme-generator@",
+  "https://raw.gitmirror.com/MemeCrafters/meme-generator/"
+]
+
+[gif]
+gif_max_size = 10.0
+gif_max_frames = 100
+
+[translate]
+baidu_trans_appid = "${BAIDU_TRANS_APPID}"  # 可通过构建参数或环境变量传入
+baidu_trans_apikey = "${BAIDU_TRANS_APIKEY}"  # 可通过构建参数或环境变量传入
+
+[server]
+host = "127.0.0.1"
+port = 2233
+
+[log]
+log_level = "INFO"
+EOF
+RUN [ "$INCLUDE_MEME" = "true" ] && chown -R akari:akari /home/akari/.config
+RUN chown -R akari:akari /app
 USER akari
+
+# 下载 meme 生成器图片资源（仅当包含 meme 功能时，akari 用户身份）
+RUN if [ "$INCLUDE_MEME" = "true" ]; then \
+    uv run meme download; \
+fi
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
