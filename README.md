@@ -6,13 +6,15 @@ Akari 是一个基于 [discord-py](https://github.com/Rapptz/discord.py) 和 Goo
 
 ## 快速开始
 
-### 1. 安装 uv（如未安装）
+### 方式一：本地运行
+
+#### 1. 安装 uv（如未安装）
 
 ```bash
 pip install uv
 ```
 
-### 2. 克隆项目并安装依赖
+#### 2. 克隆项目并安装依赖
 
 ```bash
 git clone <仓库地址>
@@ -24,8 +26,7 @@ source .venv/bin/activate # linux
 uv pip install -e .
 ```
 
-
-### 3. 配置环境变量
+#### 3. 配置环境变量
 
 在项目根目录下创建 `.env` 文件，内容如下：
 
@@ -37,61 +38,128 @@ GOOGLE_AI_KEY=你的APIKEY
 DISCORD_BOT_TOKEN=你的TOKEN
 ```
 
-### 4. 运行机器人
+#### 4. 运行机器人
 
 ```bash
 uv run akari
 ```
 
+### 方式二：Docker 运行
+
+#### 1. 克隆项目
+
+```bash
+git clone <仓库地址>
+cd akari
+```
+
+#### 2. 构建并启动
+
+**不包含 meme 功能（默认）：**
+```bash
+# 构建镜像
+docker build -t akari-bot .
+
+# 运行容器
+docker run -d \
+  --name akari-bot \
+  --restart unless-stopped \
+  -e DISCORD_BOT_TOKEN=你的令牌 \
+  -e GOOGLE_AI_KEY=你的API密钥 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  akari-bot
+```
+
+**包含 meme 功能：**
+```bash
+# 构建镜像
+docker build --build-arg INCLUDE_MEME=true -t akari-bot .
+
+# 运行容器
+docker run -d \
+  --name akari-bot \
+  --restart unless-stopped \
+  -e DISCORD_BOT_TOKEN=你的令牌 \
+  -e GOOGLE_AI_KEY=你的API密钥 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  akari-bot
+```
+
+详细说明请参考 [DOCKER.md](DOCKER.md)
 
 ---
 
-## 目录结构说明（更新版）
+## 目录结构说明
 
 ```
 akari/
-├── akari/
-│   ├── __main__.py         # 启动入口（可直接 python -m akari 启动）
-│   ├── main.py             # 启动入口
-│   ├── config/             # 配置与环境变量
+├── akari/                    # 主程序目录
+│   ├── __init__.py
+│   ├── __main__.py           # 启动入口（可直接 python -m akari 启动）
+│   ├── main.py               # 启动入口
+│   ├── config/               # 配置与环境变量
 │   │   └── settings.py
-│   ├── bot/                # Bot 主体与命令
-│   │   ├── core/           # 核心功能（bot对象、事件、装饰器、模型等）
+│   ├── bot/                  # Bot 主体与命令
+│   │   ├── core/             # 核心功能（bot对象、事件、装饰器、模型等）
 │   │   │   ├── bot.py
 │   │   │   ├── events.py
 │   │   │   ├── decorators.py
 │   │   │   ├── commands.py
 │   │   │   ├── models.py
 │   │   │   └── __init__.py
-│   │   ├── commands/       # 命令扩展
+│   │   ├── commands/         # 命令扩展
 │   │   │   ├── general.py
 │   │   │   ├── utility.py
 │   │   │   └── __init__.py
-│   │   ├── services/       # 服务层（AI、基础服务等）
+│   │   ├── services/         # 服务层（AI、基础服务等）
 │   │   │   ├── ai_service.py
 │   │   │   ├── base.py
 │   │   │   └── __init__.py
-│   │   ├── utils/          # 工具函数（Embed、错误处理等）
+│   │   ├── utils/            # 工具函数（Embed、错误处理等）
 │   │   │   ├── embeds.py
 │   │   │   ├── error_handler.py
 │   │   │   ├── formatters.py
 │   │   │   └── __init__.py
 │   │   └── __init__.py
-│   ├── plugins/            # 插件目录
-│   │   ├── admin_plugin.py
-│   │   ├── baoyan_plugin.py
-│   │   ├── meme_plugin.py
-│   │   ├── openweaponscase_plugin.py
-│   │   ├── restart_plugin.py
-│   │   ├── rss_plugin.py
-│   │   └── wiki_plugin.py
+│   ├── plugins/              # 插件目录
+│   │   ├── admin/            # 管理员插件
+│   │   │   ├── decorators.py
+│   │   │   ├── manager.py
+│   │   │   ├── models.py
+│   │   │   ├── plugin.py
+│   │   │   └── __init__.py
+│   │   ├── galgame/          # Galgame 插件
+│   │   │   ├── cache.py
+│   │   │   ├── exceptions.py
+│   │   │   ├── models.py
+│   │   │   ├── plugin.py
+│   │   │   ├── utils.py
+│   │   │   └── __init__.py
+│   │   ├── meme/             # Meme 生成器插件
+│   │   │   ├── manager.py
+│   │   │   ├── models.py
+│   │   │   ├── plugin.py
+│   │   │   ├── utils.py
+│   │   │   └── __init__.py
+│   │   ├── baoyan_plugin.py  # 保研信息查询插件
+│   │   ├── openweaponscase_plugin.py  # CS开箱模拟插件
+│   │   ├── restart_plugin.py # 重启插件
+│   │   ├── rss_plugin.py     # RSS订阅插件
+│   │   ├── wiki_plugin.py    # Wiki查询插件
+│   │   └── __init__.py
 │   └── __init__.py
-├── data/                   # 运行数据与配置
+├── data/                     # 运行数据与配置
 │   ├── admin/
 │   │   └── admin_config.json
 │   ├── baoyan/
-│   │   ├── known_programs.json
-│   │   └── sources.json
+│   ├── galgame/
+│   │   ├── cache/
+│   │   │   ├── images/
+│   │   │   └── temp/
+│   │   ├── config.json
+│   │   └── README.md
 │   ├── meme/
 │   │   └── meme_templates.md
 │   ├── openweaponscase/
@@ -100,12 +168,13 @@ akari/
 │   └── rss/
 │       ├── rss_config.json
 │       └── rss_data.json
-├── pyproject.toml          # 项目配置与依赖
+├── logs/                     # 日志文件目录
+├── pyproject.toml            # 项目配置与依赖
+├── Dockerfile                # Docker 构建文件
+├── DOCKER.md                 # Docker 部署指南
 ├── README.md
 ├── LICENSE
-├── .gitignore
-├── .python-version
-└── .env                    # 环境变量（需自行创建）
+└── .env                      # 环境变量（需自行创建）
 ```
 
 ---
@@ -161,10 +230,10 @@ def setup(bot):
 ## 命令扩展开发
 
 自定义命令建议放在 `akari/bot/commands/` 目录下。  
-只需新建 Python 文件并实现命令函数，参考已有的 `aicmd.py`、`utilcmd.py` 等。
+只需新建 Python 文件并实现命令函数，参考已有的 `general.py`、`utility.py` 等。
 
 ### 管理员插件
-请获取信任者的 Discord ID 填入 `akari/data/admin_config.json`，首次使用建议将自己的 ID 填写到超级管理员中
+请获取信任者的 Discord ID 填入 `data/admin/admin_config.json`，首次使用建议将自己的 ID 填写到超级管理员中
 
 ### 保研信息查询插件
 正常安装机器人框架即可使用
@@ -193,6 +262,7 @@ meme download
 - **依赖安装失败**：可以换源。
 - **Token/Key 未设置**：请检查 `.env` 文件内容。
 - **命令未生效**：请确认插件已正确注册，命令格式正确。
+- **Docker 构建失败**：请检查网络连接，必要时使用 `--no-cache` 参数重新构建。
 
 ---
 
