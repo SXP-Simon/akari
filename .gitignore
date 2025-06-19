@@ -24,3 +24,7 @@ uv.lock
 
 # Data
 data/baoyan/*
+
+# Docker
+.dockerignore
+logs/
