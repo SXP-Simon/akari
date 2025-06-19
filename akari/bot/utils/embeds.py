@@ -12,6 +12,7 @@ class EmbedTheme(BaseModel):
         success (int): 成功色。
         warning (int): 警告色。
         danger (int): 错误色。
+        error (int): 错误色（danger的别名）。
         info (int): 信息色。
         neutral (int): 中性色。
         special (int): 特殊色。
@@ -23,6 +24,11 @@ class EmbedTheme(BaseModel):
     info: int = Field(default=0x9b59b6)       # 紫色
     neutral: int = Field(default=0x34495e)    # 深灰色
     special: int = Field(default=0x1abc9c)    # 青绿色
+
+    @property
+    def error(self) -> int:
+        """错误色（danger的别名）"""
+        return self.danger
 
     class Config:
         frozen = True
