@@ -2,10 +2,17 @@
 
 本插件提供了查询Galgame信息的功能。
 使用月幕Gal API获取游戏数据。
+使用animetrace.com获取图片角色数据。
+
+新增功能：
+    - /gal trace anime [图片]：识别动漫图片角色，数据来源: animetrace.com
+    - /gal trace gal [图片]：识别Galgame图片角色，数据来源: animetrace.com
 
 Commands:
     !gal search: 精确搜索游戏
     !gal info: 查看游戏详细信息
+    !gal trace anime: 识别动漫图片角色（animetrace.com）
+    !gal trace gal: 识别Galgame图片角色（animetrace.com）
 """
 
 from __future__ import annotations
@@ -26,6 +33,8 @@ import time
 import io
 import os
 from urllib.parse import quote
+import base64
+from PIL import Image as PILImage
 
 from .models import GameInfo, DeveloperInfo, SearchResult, Config
 from .exceptions import GalGameError, APIError, NoGameFound, ImageError, ConfigError
@@ -258,10 +267,14 @@ class GalGame(commands.Cog):
 **可用子命令：**
 - `/gal search <游戏名>`：精确查询游戏信息
 - `/gal info <游戏ID>`：查看游戏详细信息
+- `/gal trace anime [图片]`：识别动漫图片角色
+- `/gal trace gal [图片]`：识别Galgame图片角色
 
 示例：
 - `/gal search 千恋万花`
 - `/gal info 22374`
+- `/gal trace anime` 并附带图片
+- `/gal trace gal` 并附带图片
                 """,
                 color=discord.Color.blue()
             )
@@ -443,6 +456,132 @@ class GalGame(commands.Cog):
             await message.edit(content=None, embed=embed)
             logger.error(f"获取游戏信息失败: {str(e)}")
             
+    @gal.group(name="trace")
+    async def trace(self, ctx: commands.Context):
+        """图片识别（动漫/Galgame）"""
+        if ctx.invoked_subcommand is None:
+            embed = discord.Embed(
+                title="Galgame/动漫图片识别",
+                description="""
+**可用子命令：**
+- `/gal trace anime [图片]`：识别动漫图片角色
+- `/gal trace gal [图片]`：识别Galgame图片角色
+
+示例：
+- `/gal trace anime` 并附带图片
+- `/gal trace gal` 并附带图片
+                """,
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text="数据来源: animetrace.com | 仅供参考")
+            await ctx.send(embed=embed)
+
+    @trace.command(name="anime")
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.user)
+    @log_command
+    async def trace_anime(self, ctx: commands.Context):
+        """识别动漫图片角色（动画专用模型）"""
+        await self._handle_trace(ctx, model="pre_stable", model_name="动漫识别", emoji="📺")
+
+    @trace.command(name="gal")
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.user)
+    @log_command
+    async def trace_gal(self, ctx: commands.Context):
+        """识别Galgame图片角色（Gal专用模型）"""
+        await self._handle_trace(ctx, model="full_game_model_kira", model_name="Gal识别", emoji="🎮")
+
+    async def _handle_trace(self, ctx: commands.Context, model: str, model_name: str, emoji: str):
+        """统一处理图片识别请求"""
+        image_url = self._get_image_url_from_message(ctx)
+        if not image_url:
+            await ctx.send("⚠️ 请发送一张图片（作为附件上传）")
+            return
+        try:
+            embed_loading = discord.Embed(
+                title=f"{emoji} {model_name}处理中...",
+                description="图片上传中，请稍候...",
+                color=discord.Color.blue()
+            )
+            message = await ctx.send(embed=embed_loading)
+            img_base64 = await self._process_image_to_base64(image_url)
+            result = await self._call_animetrace_api(img_base64, model)
+            response = self._format_trace_response(result, model_name, emoji)
+            await message.edit(content=None, embed=response)
+        except asyncio.TimeoutError:
+            await ctx.send("⏱️ 识别超时，请稍后重试")
+        except Exception as e:
+            logger.error(f"识别失败: {str(e)}")
+            await ctx.send(f"❌ 识别失败: {str(e)}")
+
+    def _get_image_url_from_message(self, ctx: commands.Context) -> str:
+        """从消息中获取第一张图片的URL（仅支持附件）"""
+        if ctx.message.attachments:
+            return ctx.message.attachments[0].url
+        return ""
+
+    async def _process_image_to_base64(self, img_url: str, max_size: int = 1024) -> str:
+        """下载图片并压缩为base64字符串"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(img_url) as response:
+                if response.status != 200:
+                    raise Exception(f"图片下载失败: HTTP {response.status}")
+                img_data = await response.read()
+        img = PILImage.open(io.BytesIO(img_data))
+        if max(img.size) > max_size:
+            ratio = max_size / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, PILImage.LANCZOS)
+        buffered = io.BytesIO()
+        img.save(buffered, format="JPEG", quality=85)
+        return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    async def _call_animetrace_api(self, img_base64: str, model: str) -> dict:
+        """调用AnimeTrace API"""
+        api_url = "https://api.animetrace.com/v1/search"
+        payload = {
+            "base64": img_base64,
+            "is_multi": 1,
+            "model": model,
+            "ai_detect": 1
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                api_url,
+                data=payload,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(f"API错误: {error_text[:100]}")
+                return await response.json()
+
+    def _format_trace_response(self, data: dict, model_name: str, emoji: str) -> discord.Embed:
+        """格式化API响应为Discord嵌入消息"""
+        embed = discord.Embed(
+            title=f"{emoji} {model_name}结果",
+            color=discord.Color.green()
+        )
+        if not data.get("data") or not data["data"]:
+            embed.description = "🔍 未找到匹配的信息"
+            return embed
+        first_box = data["data"][0]
+        characters = first_box.get("character", [])
+        if not characters:
+            embed.description = "🔍 未识别到具体角色信息"
+            return embed
+        ai_status = data.get("ai", False)
+        ai_flag = "🤖 AI生成" if ai_status else "NO AI"
+        lines = [f"**{emoji} {model_name}结果** | {ai_flag}", "------------------------"]
+        for i, item in enumerate(characters[:5]):
+            character = item.get("character", "未知角色")
+            anime = item.get("work", "未知作品")
+            lines.append(f"{i+1}. **{character}** - 《{anime}》")
+        if len(characters) > 5:
+            lines.append(f"\n> 共找到 {len(characters)} 个结果，显示前5项")
+        lines.append("\n数据来源: AnimeTrace，该结果仅供参考")
+        embed.description = "\n".join(lines)
+        return embed
+
     @search.error
     @info.error
     async def command_error(self, ctx: commands.Context, error: Exception) -> None:
