@@ -22,6 +22,10 @@ dependencies = [
     "typing-extensions>=4.10.0",
     "aiofiles>=24.1.0",
     "Pillow>=10.0.0",
+    "requests>=2.32.4",
+    "redis>=6.2.0",
+    "jmcomic>=2.6.4",
+    "browser-cookie3>=0.20.1",
 ]
 
 [project.optional-dependencies]

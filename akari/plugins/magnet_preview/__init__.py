@@ -1,0 +1,1 @@
+# akari.plugins.magnet_preview 插件初始化 
